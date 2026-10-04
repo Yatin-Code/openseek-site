@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSeek API</title>
+</head>
+<body>
+
+<h1>OpenSeek API</h1>
+
+<p>The reference registry runs at <code>https://openseek.duckdns.org</code>. It answers JSON over HTTP and serves the preview assets themselves from <code>/s/</code>. Endpoints are listed below as <strong>open</strong> or <strong>keyed</strong>; a keyed one answers 401 without a valid key.</p>
+
+<h2>Request shape</h2>
+
+<pre><code>GET /v1/sprites?imdb_id=tt0111161&amp;duration_ms=8280000
+Host: openseek.duckdns.org
+X-API-Key: &lt;your key&gt;</code></pre>
+
+<ul>
+<li><code>imdb_id</code> or <code>tmdb_id</code> — the metadata id of the title. Either one identifies it; supply one, not both.</li>
+<li><code>duration_ms</code> — the runtime the player reports, in milliseconds. The registry uses it to choose between indexed versions.</li>
+<li><code>X-API-Key</code> — the header carrying the key on every keyed route.</li>
+</ul>
+
+<p>Episodes are looked up with <code>show_imdb_id</code> or <code>show_tmdb_id</code> plus <code>season</code> and <code>episode</code>. A lookup has no size parameter: the registry serves one tile size, 320&times;180.</p>
+
+<h2>Open endpoints</h2>
+
+<ul>
+<li><code>GET /v1/status</code> — service state: <code>ok</code>, <code>titles</code>, <code>versions</code>, <code>service</code>.</li>
+<li><code>GET /v1/catalog</code> — browsable index of everything indexed. Every version carries <code>vtt_url</code>, <code>cue_count</code>, <code>interval_s</code>, <code>width</code>, <code>height</code>, <code>status</code> and <code>covered_until_ms</code>. Catalogue metadata only.</li>
+<li><code>GET /v1/titles?imdb_id=…</code> — all versions of one title.</li>
+<li><code>GET /v1/keys/validate</code> — key self-check. Not quota-gated: it never counts usage. Returns <code>200 {valid, name}</code> for a known key and <code>401 {valid: false}</code> for an unknown or missing one.</li>
+<li><code>GET /s/…</code> — static VTT and sheet files. Long cache headers on sheets, which are immutable once written.</li>
+<li><code>GET /v1/requests</code> — the open backlog of titles someone asked to have indexed.</li>
+</ul>
+
+<h2>Keyed endpoints</h2>
+
+<ul>
+<li><code>GET /v1/sprites?…</code> — the lookup. Returns <code>vtt_url</code>, <code>version</code>, <code>status</code>, <code>covered_until_ms</code>, <code>source_duration_ms</code> and <code>scale</code>. An unknown title is a 404.</li>
+<li><code>POST /v1/contribute</code> — contributor upload, <code>multipart/form-data</code> with a <code>meta</code> part carrying the title block as JSON, a <code>vtt</code> part carrying <code>thumbnails.vtt</code>, and the sheets as <code>sheet-*.jpg</code> parts.</li>
+<li><code>POST /v1/register</code> — upsert a title and insert a version directly. For population time.</li>
+<li><code>POST /v1/contributions/&lt;id&gt;/verify</code> — internal-consistency check on a quarantined upload.</li>
+<li><code>POST /v1/contributions/&lt;id&gt;/promote</code> — move a verified contribution into the catalogue.</li>
+<li><code>GET /v1/contributions/&lt;id&gt;</code> — the state of one contribution.</li>
+<li><code>POST /v1/requests</code> — log that a title is wanted. Deduplicated on id.</li>
+<li><code>POST /v1/jobs</code>, <code>POST /v1/jobs/lease</code>, <code>POST /v1/jobs/&lt;id&gt;/ack</code>, <code>POST /v1/jobs/&lt;id&gt;/fail</code> — the generation queue, for whoever runs the workers.</li>
+</ul>
+
+<p>A key does not bypass verification. Promotion refuses a contribution that has not been verified, and verification is a check on the upload itself: the WebVTT must parse, every cue must reference a sheet that was uploaded, sampled tiles must decode as non-blank JPEGs, the tile boxes must lie inside the sheet image, and the cue count and interval must be plausible.</p>
+
+<h2>Getting a key</h2>
+
+<p>Signing in with a Google account issues a key for the hosted registry, up to four active keys per account. The key is shown once, on a page that does not cache. <a href="/v1/auth/start">Sign in with Google to get an API key</a>.</p>
+
+<p>Self-hosting needs no account at all: you run the registry, so you mint your own keys on your own host. See <a href="/self-host">self-hosting</a>.</p>
+
+<p>On a registry host, an operator mints a key with:</p>
+
+<pre><code>python3 mint_key.py &lt;name&gt;</code></pre>
+
+<p>The key is printed once and only a hash of it is stored — a sha256 digest plus a six-character prefix for identification — so it cannot be shown again. Mint a replacement and revoke the old one by that prefix:</p>
+
+<pre><code>DELETE FROM keys WHERE key_prefix='&lt;old prefix&gt;';</code></pre>
+
+<h2>Lookup example</h2>
+
+<pre><code>curl -H 'X-API-Key: &lt;your key&gt;' \
+  'https://openseek.duckdns.org/v1/sprites?imdb_id=tt0111161&amp;duration_ms=8280000'</code></pre>
+
+<pre><code>{
+  "media_type": "movie",
+  "title": "The Shawshank Redemption",
+  "imdb_id": "tt0111161",
+  "vtt_url": "https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt",
+  "version": 1,
+  "source_duration_ms": 8280000,
+  "scale": 1.0,
+  "status": "complete",
+  "covered_until_ms": 8280000
+}</code></pre>
+
+<p><code>vtt_url</code> may point at object storage rather than at the registry. Fetch it, resolve the sheet names it references against the directory it came from, and do not rebuild those URLs from the origin. The lifecycle is described step by step on the <a href="/sdk">SDK page</a>.</p>
+
+<h2>Limits and current policy</h2>
+
+<ul>
+<li>No rate limiting is implemented.</li>
+<li>Per-key quota defaults to 1,000,000 requests per day, counted per UTC day and <strong>not enforced</strong>. One flag turns 429s on.</li>
+<li>An unknown or malformed key returns 401.</li>
+<li>Contributor uploads are capped at 50 MB.</li>
+<li>Lookup matches the nearest version within &plusmn;240 s of the reported duration.</li>
+<li>Accepted intervals are 5, 10 or 30 seconds.</li>
+<li>A version needs at least 5 cues.</li>
+<li>Up to 5 versions per title.</li>
+<li>One tile size: 320&times;180.</li>
+</ul>
+
+<h2>Elsewhere</h2>
+
+<ul>
+<li><a href="/">OpenSeek</a> — overview.</li>
+<li><a href="/sdk">SDK</a> — the lookup-to-tile lifecycle, with client snippets.</li>
+<li><a href="/self-host">Self-hosting</a> — run the service yourself.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a> — the client packages.</li>
+<li><a href="https://github.com/Yatin-Code/NuvioMobile">github.com/Yatin-Code/NuvioMobile</a> — the player that consumes them.</li>
+</ul>
+
+</body>
+</html>

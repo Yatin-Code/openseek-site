@@ -3,259 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenSeek — scrub previews for any player</title>
+<title>OpenSeek</title>
 </head>
 <body>
 
 <h1>OpenSeek</h1>
 
-<p>Seek-preview thumbnails for video players, delivered as sprite sheets and a
-WebVTT cue track. A player looks up one title, reads one cue for the current
-playback position, and crops one tile out of a sheet.</p>
+<p>OpenSeek serves scrub-preview thumbnails for video players as JPEG sprite sheets and a WebVTT cue track. A player looks a title up by metadata id and duration, reads the cue that covers the current playback position, and crops one 320&times;180 tile out of a sheet.</p>
 
-<h2>What this is</h2>
+<p>The reference implementation is three Python programs: a generator, a static file server and a registry. Coverage is per title and can be partial, so every lookup reports where coverage ends. New coverage is merged in from players that watch.</p>
 
-<p>OpenSeek indexes films by metadata id and duration, serves the preview
-assets, and merges new coverage from players that watch.</p>
+<h2>Where to go</h2>
 
 <ul>
-<li>Send a title's IMDb or TMDB id plus <code>duration_ms</code>; get back a
-WebVTT file and JPEG sprite sheets of 320&times;180 tiles packed into sheets,
-covering that film at a configurable interval (5, 10 or 30 seconds).</li>
-<li>Any player can render a preview for a scrub position by reading one cue and
-cropping one tile. No vendor account, no quota, no URL expiry.</li>
-<li>Coverage is per-title and can be partial. Every lookup reports
-<code>status</code> and <code>covered_until_ms</code>, so a player knows where
-to stop drawing instead of showing a stale frame from the tail of the file.</li>
-<li>Coverage grows from watching. A player with contribution enabled banks
-tiles while the title plays, flushes a bundle, and the registry merges it into
-the existing version slot by slot.</li>
+<li><a href="/sdk">SDK</a> — the five-step lifecycle from the lookup request to the rendered tile, with Kotlin and JavaScript snippets.</li>
+<li><a href="/api">API</a> — every endpoint marked open or keyed, how to get a key, and the limits that currently apply.</li>
+<li><a href="/self-host">Self-hosting</a> — indexing media you have the right to process, from a local file to your own registry.</li>
 </ul>
 
-<h2>SDK</h2>
-
-<p>Two packages, both dependency-free:</p>
+<h2>Repositories</h2>
 
 <ul>
-<li><strong>Kotlin (JVM, pure).</strong> Uses only the standard library plus
-<code>javax.imageio</code>. Handles the playback half: fetch the lookup, parse
-the VTT, resolve a tile for a position, crop it. The contribution half
-(<code>ContributeBatch</code>, <code>uploadContribution</code>) is built on a
-branch and is not released.</li>
-<li><strong>JavaScript (browser, zero deps).</strong> The same two halves:
-lookup, VTT parse, floor lookup with the coverage bound, sheet cache and canvas
-crop; plus capture and bundle upload.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a> — Kotlin and JavaScript client packages.</li>
+<li><a href="https://github.com/Yatin-Code/NuvioMobile">github.com/Yatin-Code/NuvioMobile</a> — the player that consumes the SDK.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-site">github.com/Yatin-Code/openseek-site</a> — these pages.</li>
 </ul>
-
-<p>Source: <a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a>.
-Publishing is prepared but not live: the npm package is named
-<code>@openseek/sdk</code> and the Maven coordinates are
-<code>tv.openseek:openseek-sdk-jvm</code>, but neither is on a public registry
-yet. Until then, read the sources in the repo.</p>
-
-<h3>Kotlin — playback</h3>
-
-<pre><code>import openseek.OpenSeekClient
-import openseek.thumbnailFor
-
-val client = OpenSeekClient("https://openseek.duckdns.org",
-                            apiKey = System.getenv("OPENSEEK_KEY"))
-val track = client.loadMovieTrack(imdbId = "tt0111161",
-                                 durationMs = player.duration) ?: return
-// during a scrub, positionMs = current playback position:
-val cue = track.thumbnailFor(positionMs) ?: return   // null past coverage
-val tile = client.cropTile(client.sheetBytes(cue.imageUrl), cue)</code></pre>
-
-<h3>JavaScript — playback</h3>
-
-<pre><code>import { loadMovieTrack, paintPeek } from "@openseek/sdk";
-
-const track = await loadMovieTrack("https://openseek.duckdns.org",
-  { imdb_id: "tt0111161", duration_ms: video.duration * 1000 });
-if (!track) return;                       // not indexed: no preview
-// during a scrub, positionMs = current playback position:
-const shown = await paintPeek(canvas, track, positionMs);
-shown ? popup.show() : popup.hide();      // false = past covered_until_ms</code></pre>
-
-<p>Both packages use floor semantics: the last cue at or before the position,
-corrected by the <code>scale</code> the registry reports, and bounded by
-<code>covered_until_ms</code>.</p>
-
-<h2>Get API</h2>
-
-<p>The running registry is at <code>https://openseek.duckdns.org</code>.</p>
-
-<ul>
-<li><code>GET /v1/status</code> — <strong>OPEN</strong>. One-line JSON service
-state.</li>
-<li><code>GET /v1/catalog</code> — <strong>OPEN</strong>. Browsable index of
-every indexed title. Each version carries <code>vtt_url</code>,
-<code>cue_count</code>, <code>interval_s</code>, <code>status</code> and
-<code>covered_until_ms</code>.</li>
-<li><code>GET /v1/titles?imdb_id=…</code> — <strong>OPEN</strong>. All versions
-of one title.</li>
-<li><code>GET /v1/keys/validate</code> — <strong>OPEN</strong>. Takes
-<code>X-API-Key</code>, returns <code>{valid, name}</code>. Does not count
-against quota.</li>
-<li><code>GET /v1/sprites?imdb_id=…&amp;duration_ms=…</code> —
-<strong>KEYED</strong>. The main lookup. Returns <code>vtt_url</code>,
-<code>version</code>, <code>status</code>, <code>covered_until_ms</code> and
-<code>scale</code>.</li>
-<li><code>POST /v1/contribute</code> — <strong>KEYED</strong>. Contributor
-upload, multipart: a JSON metadata part plus <code>thumbnails.vtt</code> plus
-<code>sheet-*.jpg</code> files.</li>
-<li><code>GET /s/…</code> — <strong>OPEN</strong>. Static VTT and sheet files
-when no CDN fronts them.</li>
-</ul>
-
-<h3>Getting a key</h3>
-
-<p>Keys are minted on the registry host and printed once:</p>
-
-<pre><code>python3 mint_key.py &lt;name&gt;</code></pre>
-
-<p>Revoke one by deleting its row:</p>
-
-<pre><code>DELETE FROM keys WHERE key='…';</code></pre>
-
-<h3>Lookup example</h3>
-
-<pre><code>curl -H 'X-API-Key: &lt;your key&gt;' \
-  'https://openseek.duckdns.org/v1/sprites?imdb_id=tt0111161&amp;duration_ms=8280000'</code></pre>
-
-<p>The response:</p>
-
-<pre><code>{
-  "media_type": "movie",
-  "title": "The Shawshank Redemption",
-  "imdb_id": "tt0111161",
-  "vtt_url": "https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt",
-  "version": 1,
-  "source_duration_ms": 8280000,
-  "scale": 1.0,
-  "status": "complete",
-  "covered_until_ms": 8280000
-}</code></pre>
-
-<p><code>scale</code> is the ratio of the requested duration to the indexed
-source duration, so a player reporting a slightly different runtime still lands
-on the right cue. <code>status</code> is <code>pending</code> while coverage is
-partial and <code>complete</code> when it reaches the end.</p>
-
-<h3>Limits and current policy</h3>
-
-<ul>
-<li>No rate limiting is implemented.</li>
-<li>Per-key quota defaults to 1,000,000 requests per day, counted per UTC day
-and <strong>not enforced</strong>. One flag flips 429s on.</li>
-<li>An unknown or malformed key returns 401.</li>
-<li>Contributor uploads are capped at 50 MB.</li>
-<li>Lookup matches the nearest version within &plusmn;240 s of the reported
-duration.</li>
-<li>Accepted intervals are 5, 10 or 30 s, and a version needs at least 5 cues.</li>
-<li>Up to 5 versions per title.</li>
-</ul>
-
-<h2>Open-source guide</h2>
-
-<h3>Run it yourself</h3>
-
-<p>Four components:</p>
-
-<ul>
-<li>A sprite generator: ffmpeg plus Pillow. Reads frames at each timestamp,
-scales and crops them to 320&times;180, packs them into JPEG sheets, writes
-<code>thumbnails.vtt</code> with <code>#xywh=</code> cue payloads. Needs ffmpeg
-on <code>PATH</code> and <code>pip install Pillow</code>.</li>
-<li>A static and VTT server: Python standard library only, no dependencies. It
-serves the sheets and the VTT over <code>/s/</code> with long cache headers.</li>
-<li>A registry: Python standard library plus <code>sqlite3</code>. Holds
-titles, versions, keys and the request ledger, and serves the API above.</li>
-<li>An optional blob or CDN sync: mirrors the store to object storage so a CDN
-can front the sheets. Sheets are immutable once written, which is what makes
-the sync safe.</li>
-</ul>
-
-<p>Shortest path to a working local setup:</p>
-
-<pre><code># 1. generate previews for a local file (needs ffmpeg + Pillow)
-python3 spritegen/spritegen.py --id tt0111161 \
-    --in movie.mp4 --out store/tt0111161/ --interval 10
-
-# 2. serve the store (standard library only)
-python3 server/server.py --store ./store --port 8080
-
-# 3. or run the registry with its own database
-python3 registry/init_db.py
-python3 registry/registry.py --port 8081</code></pre>
-
-<p><code>init_db.py</code> is idempotent: it applies the schema and then any
-migrations, so it is safe to re-run on an existing database. The generated
-<code>store/</code> is a plain directory of files; no database is needed to
-serve it. The end-to-end test runs on the standard library alone, with no
-ffmpeg and no Pillow:</p>
-
-<pre><code>python3 tests/test_e2e.py</code></pre>
 
 <p>MIT licensed.</p>
-
-<h3>Work on it / contribute</h3>
-
-<p>Repositories:</p>
-
-<ul>
-<li><a href="https://github.com/Yatin-Code/openseek-sdk">openseek-sdk</a> —
-Kotlin and JavaScript client packages.</li>
-<li><a href="https://github.com/Yatin-Code/NuvioMobile">NuvioMobile</a> — the
-player that consumes the SDK and ships the capture path.</li>
-<li><a href="https://github.com/Yatin-Code/openseek-site">openseek-site</a> —
-this page.</li>
-</ul>
-
-<p>Repo map at a glance: <code>packages/kotlin</code> and
-<code>packages/js</code> are the SDKs; <code>docs/wire.md</code> pins the
-request and response contract; <code>docs/PUBLISHING.md</code> holds the
-release checklist. On the service side the generator, the static server and the
-registry are separate top-level directories.</p>
-
-<p>How a contribution actually travels:</p>
-
-<ol>
-<li>The player banks tiles as the title plays — one tile per interval step,
-kept in memory and then on disk.</li>
-<li>At the bundle boundary (48 tiles) it flushes them as a multipart
-<code>POST /v1/contribute</code> carrying a JSON metadata part,
-<code>thumbnails.vtt</code> and the <code>sheet-*.jpg</code> files.</li>
-<li>The registry stores the upload in quarantine. Nothing under
-<code>/s/</code> is served from quarantine.</li>
-<li>Verification runs on the quarantined copy: the VTT must parse, every cue
-must reference a sheet that exists, the tile boxes must be inside the sheet
-image, sampled tiles must decode as valid non-blank JPEGs, cue count must be at
-least 5 and the interval must be one of 5, 10 or 30 s.</li>
-<li>On success the contribution is promoted: it becomes a new version, or it
-merges slot by slot into an existing version when the title and duration match
-within &plusmn;15 s. Slots are positional (cue <em>i</em> is second
-<em>i</em>&thinsp;&times;&thinsp;interval), the first writer wins on overlap, and
-colliding sheet filenames are renamed rather than rewritten, so bytes a player
-already cached never change. Coverage extends to the new last cue.</li>
-<li>If it cannot merge, it is rejected with a reason. Duplicate submissions,
-interval mismatch and tile-size mismatch are the three rejections.</li>
-</ol>
-
-<h2>Licence and source</h2>
-
-<p>MIT licensed. Everything above is open source and self-hostable: run your
-own generator, your own store and your own registry, and point your players at
-it.</p>
-
-<ul>
-<li><a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a>
-— SDK, both languages.</li>
-<li><a href="https://github.com/Yatin-Code/NuvioMobile">github.com/Yatin-Code/NuvioMobile</a>
-— reference player.</li>
-<li><a href="https://github.com/Yatin-Code/openseek-site">github.com/Yatin-Code/openseek-site</a>
-— this page.</li>
-</ul>
 
 </body>
 </html>

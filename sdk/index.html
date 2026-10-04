@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSeek SDK</title>
+</head>
+<body>
+
+<h1>OpenSeek SDK</h1>
+
+<p>This page describes one contract: the lifecycle from a lookup request to a rendered tile, in five steps. The Kotlin and JavaScript packages implement exactly this, in the standard library and in the browser, with no dependencies.</p>
+
+<h2>The lifecycle</h2>
+
+<ol>
+
+<li>
+<p><strong>Player ready.</strong> Before the first seek, the player issues one lookup request carrying the title's metadata id and its reported duration, with the API key in an <code>X-API-Key</code> header. Do this once per title, not once per scrub: the lookup does not depend on the playback position.</p>
+<pre><code>GET /v1/sprites?imdb_id=tt0111161&amp;duration_ms=8280000
+X-API-Key: &lt;your key&gt;</code></pre>
+<p>The header is required. <code>GET /v1/sprites</code> is a keyed route and answers 401 without a valid key.</p>
+</li>
+
+<li>
+<p><strong>Lookup.</strong> The registry matches the nearest indexed version to the reported duration and returns JSON. <code>version</code> identifies which one was chosen, <code>source_duration_ms</code> is the runtime of the indexed copy, and <code>scale</code> is the ratio between the requested duration and that source duration, so a player reporting a slightly different runtime still lands on the right cue. <code>status</code> and <code>covered_until_ms</code> describe how far coverage reaches.</p>
+<pre><code>{
+  "media_type": "movie",
+  "title": "The Shawshank Redemption",
+  "imdb_id": "tt0111161",
+  "vtt_url": "https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt",
+  "version": 1,
+  "source_duration_ms": 8280000,
+  "scale": 1.0,
+  "status": "complete",
+  "covered_until_ms": 8280000
+}</code></pre>
+</li>
+
+<li>
+<p><strong>VTT fetched.</strong> The player fetches <code>vtt_url</code>. No API key is needed for this request, and for <code>GET /s/…</code> paths the response is cacheable. The file is WebVTT: a <code>WEBVTT</code> header, then one cue per frame consisting of <code>HH:MM:SS.mmm --&gt; HH:MM:SS.mmm</code> followed by a payload.</p>
+<pre><code>WEBVTT
+
+00:00:00.000 --&gt; 00:00:10.000
+sheet-320x180-0.jpg#xywh=0,0,320,180
+
+00:00:10.000 --&gt; 00:00:20.000
+sheet-320x180-0.jpg#xywh=320,0,320,180</code></pre>
+<p>Past the one-hour mark the timestamps start with <code>01:</code>, so a parser must not assume two components. A full bundle is positional — cue <em>i</em> covers second <em>i</em> &times; <code>interval_s</code> — but a partial bundle does not have to be: a bundle captured part-way through a title starts at the timestamp it started at, and one first cue at <code>00:01:00</code> is ordinary. Do not index cues by position. Keep them in the order they appear and, for a scrub position, take <strong>the last cue whose start is less than or equal to the position</strong>.</p>
+</li>
+
+<li>
+<p><strong>Sheet fetched.</strong> Each cue payload names a sheet and the tile box inside it, separated by <code>#xywh=</code>: <code>sheet-320x180-N.jpg#xywh=x,y,w,h</code>. The sheet name is relative. Resolve it against the directory of the <code>vtt_url</code> that handed it to you, not against the registry origin — <code>vtt_url</code> is frequently an object-storage URL on a different host, and building a sheet URL from the origin instead of from the VTT will fetch the wrong thing or nothing.</p>
+<p>Each sheet is a grid of 320&times;180 tiles. Read <code>x</code>, <code>y</code>, <code>w</code> and <code>h</code> from the cue and do not derive them from a grid size: sheets written by the generator are 10&times;10, and sheets uploaded by clients are 5&times;5. Both are served.</p>
+</li>
+
+<li>
+<p><strong>Render.</strong> Crop the tile described by <code>x</code>, <code>y</code>, <code>w</code>, <code>h</code> from the sheet and show it above the scrubber. Both SDKs cache decoded sheets in memory, 32 entries, so a scrub across one sheet is one fetch rather than one per position.</p>
+</li>
+
+</ol>
+
+<h2>Coverage</h2>
+
+<p><code>status</code> is <code>pending</code> or <code>complete</code>. A pending version has real previews only up to <code>covered_until_ms</code>, and everything after that point is simply not there. A floor lookup on its own returns the last cue at or before the position, which past coverage means a stale tile from the tail of the file. A player must compare the position against <code>covered_until_ms</code> and show nothing past it. Both packages apply that bound for you: <code>thumbnailFor</code> returns null there, and <code>paintPeek</code> returns false.</p>
+
+<h2>Kotlin</h2>
+
+<pre><code>import openseek.OpenSeekClient
+import openseek.thumbnailFor
+
+// /v1/sprites is keyed: apiKey is sent as X-API-Key.
+val client = OpenSeekClient("https://openseek.duckdns.org",
+                            apiKey = System.getenv("OPENSEEK_KEY"))
+
+val track = client.loadMovieTrack(imdbId = "tt0111161",
+                                 durationMs = player.durationMs) ?: return
+// during a scrub, positionMs is the current playback position:
+val cue = track.thumbnailFor(positionMs) ?: return   // null past coverage
+val tile = client.cropTile(client.sheetBytes(cue.imageUrl), cue)</code></pre>
+
+<p><code>loadMovieTrack</code> returns null on 404, meaning the title is not indexed. <code>cropTile</code> returns a <code>BufferedImage</code> and uses <code>javax.imageio</code>; on Android, decode the same bytes with <code>BitmapFactory</code> and take the sub-bitmap instead.</p>
+
+<h2>JavaScript</h2>
+
+<pre><code>import { loadMovieTrack, paintPeek } from "@openseek/sdk";
+
+// /v1/sprites is keyed: wrap fetch so the lookup carries X-API-Key.
+const key = "&lt;your key&gt;";
+const authedFetch = (url, init = {}) =&gt;
+  fetch(url, { ...init, headers: { ...init.headers, "X-API-Key": key } });
+
+const track = await loadMovieTrack("https://openseek.duckdns.org",
+  { imdb_id: "tt0111161", duration_ms: video.durationMs },
+  { fetchFn: authedFetch });
+if (!track) return;                        // 404: title not indexed
+
+// during a scrub, positionMs is the current playback position:
+const shown = await paintPeek(canvas, track, positionMs);
+shown ? preview.show() : preview.hide();  // false = past coverage</code></pre>
+
+<p><code>paintPeek</code> crops into a canvas you supply, so the element is yours to place and size. Sheet requests are made with <code>crossOrigin</code> set, which is what keeps the sheet untainted.</p>
+
+<h2>Packages</h2>
+
+<p>Source: <a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a>. Both packages are MIT licensed and dependency-free. Publishing is prepared but not live: the npm package is <code>@openseek/sdk</code> at version <code>0.2.0-unreleased</code>, and the Maven coordinates are <code>tv.openseek:openseek-sdk-jvm</code> at the same version. Neither is on a public registry yet — the Maven one has a publish template but no Gradle build behind it — so read the sources in the repo instead of installing.</p>
+
+<h2>Elsewhere</h2>
+
+<ul>
+<li><a href="/">OpenSeek</a> — overview.</li>
+<li><a href="/api">API</a> — endpoints and limits.</li>
+<li><a href="/self-host">Self-hosting</a> — run the service yourself.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a> — this SDK.</li>
+<li><a href="https://github.com/Yatin-Code/NuvioMobile">github.com/Yatin-Code/NuvioMobile</a> — the player that consumes it.</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self-hosting OpenSeek</title>
+</head>
+<body>
+
+<h1>Self-hosting OpenSeek</h1>
+
+<p>This page is for indexing media you already have and have the right to process. Nothing here needs or expects anyone else to supply media: you point the generator at a file on your own disk, and the service serves only what you generated.</p>
+
+
+
+<h2>Step by step</h2>
+
+<ol>
+
+<li>
+<p><strong>Generate sheets and a WebVTT from a local file.</strong> This needs <code>ffmpeg</code> on your <code>PATH</code> and Pillow (<code>pip install Pillow</code>).</p>
+<pre><code>python3 spritegen/spritegen.py --id MY_ID --title "My Film" \
+  --in /path/to/file.mp4 --out store/MY_ID/ \
+  --interval 10 --mode fast --workers 4 --sizes 320x180</code></pre>
+<p>It writes JPEG sprite sheets of 320&times;180 tiles and a <code>thumbnails.vtt</code> beside them. <code>--interval</code> accepts 5, 10 or 30 seconds; 10 is the default and the one the registry expects for a good match. The run exits non-zero if it produced no frames, and it never writes an empty cue track.</p>
+</li>
+
+<li>
+<p><strong>Serve the store locally.</strong> The server is standard library only.</p>
+<pre><code>python3 server/server.py --store ./store --port 8080</code></pre>
+<p>Look a title up by id and duration, then open the <code>vtt_url</code> from the response:</p>
+<pre><code>curl 'http://127.0.0.1:8080/sprites?imdb_id=tt0111161&amp;duration_ms=8280000'</code></pre>
+<p>This local lookup takes no key. The response carries <code>vtt_url</code> alongside <code>source_duration_ms</code> and <code>scale</code>, and the sheets sit next to the cue track under <code>/s/</code>.</p>
+</li>
+
+<li>
+<p><strong>Optional: run the shared registry.</strong> If several clients should see one catalogue, run the registry instead of the plain store. It is standard library plus <code>sqlite3</code>.</p>
+<pre><code>python3 registry/init_db.py
+python3 registry/registry.py --port 8080</code></pre>
+<p><code>init_db.py</code> is idempotent: it applies the schema and then any migrations, so re-running it against an existing database is safe. Keys live in a <code>keys</code> table, and one is minted on the host with:</p>
+<pre><code>python3 mint_key.py &lt;name&gt;</code></pre>
+<p>The key is printed once and only a hash of it is stored, with a six-character prefix, so it cannot be displayed again. Mint a replacement and revoke the old one by prefix. <code>X-API-Key</code> is required on <code>/v1/sprites</code>, <code>/v1/contribute</code> and the intake routes.</p>
+</li>
+
+<li>
+<p><strong>Optional: point the player at your own origin.</strong> Both SDKs take the registry origin as their base, so pass your own host instead of the hosted one. A self-hosted registry speaks plain HTTP, so if you serve to browsers over HTTPS, put a reverse proxy in front of it and terminate TLS there.</p>
+</li>
+
+<li>
+<p><strong>Optional: mirror to object storage or a CDN.</strong> Set the base the registry advertises:</p>
+<pre><code>python3 registry/registry.py --port 8080 --cdn-base &lt;your CDN base URL&gt;
+# or
+OPENSEEK_CDN_BASE=&lt;your CDN base URL&gt; python3 registry/registry.py</code></pre>
+<p>Only the advertised <code>vtt_url</code> changes. The store layout, the database rows and the merge path are untouched, and the cue payloads are sheet-relative, so they resolve against whichever base was handed out. The bytes are public, unsigned and do not expire, which is what makes mirroring them safe.</p>
+</li>
+
+</ol>
+
+<h2>Limits</h2>
+
+<ul>
+<li>One tile size, 320&times;180.</li>
+<li>One host, unless you add a CDN of your own in step 5.</li>
+<li>Generation speed is whatever your own machine manages; it is CPU-bound and parallel across <code>--workers</code>.</li>
+<li>No CDN, no TLS termination and no multi-host fan-out unless you build them.</li>
+</ul>
+
+<h2>Elsewhere</h2>
+
+<ul>
+<li><a href="/">OpenSeek</a> — overview.</li>
+<li><a href="/sdk">SDK</a> — the lookup-to-tile lifecycle, with client snippets.</li>
+<li><a href="/api">API</a> — endpoints and limits.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a> — the client packages.</li>
+<li><a href="https://github.com/Yatin-Code/NuvioMobile">github.com/Yatin-Code/NuvioMobile</a> — the player that consumes them.</li>
+</ul>
+
+</body>
+</html>
