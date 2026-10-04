@@ -1,735 +1,261 @@
 <!doctype html>
 <html lang="en">
-<!--
-  OpenSeek — seek previews for any player. One static file, no build.
-  Served same-origin by Caddy in front of the registry: JSON comes from the
-  relative routes /api/status and /api/catalog, sprite sheets + VTT from the
-  public CDN. Works from file:// too (the /api fetches degrade to "last known").
-  No framework, no CDN, no npm, no ES modules.
--->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenSeek — seek previews for any player</title>
-<meta name="description" content="Real scrub previews from real films. Open, self-hostable, MIT: no account, no quota, no expiring URLs.">
-<meta name="color-scheme" content="dark">
-<style>
-:root{
-  --bg:#0b0a09;--bg2:#121010;--ink:#f4eee5;--body:#c7beb4;--dim:#8d847b;
-  --hair:rgba(244,238,229,.11);--amber:#ffb02e;
-  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --pad:clamp(20px,5vw,64px);
-}
-*,*::before,*::after{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{
-  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
-  font-size:16px;line-height:1.6;overflow-x:hidden;
-}
-body::before{
-  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
-  background:radial-gradient(120% 70% at 22% -12%,rgba(255,176,46,.10),transparent 58%);
-}
-img{display:block;max-width:100%}
-h1,h2,h3,p,ul,ol,figure,pre{margin:0}
-ul,ol{padding:0;list-style:none}
-a{color:inherit}
-button,input{font:inherit;color:inherit}
-button{background:none;border:0;padding:0;cursor:pointer}
-:focus-visible{outline:2px solid var(--amber);outline-offset:4px;border-radius:4px}
-:focus:not(:focus-visible){outline:none}
-[hidden]{display:none!important}
-.wrap{position:relative;z-index:1;width:100%;max-width:1180px;margin:0 auto;padding:0 var(--pad)}
-.lab{
-  font:500 10.5px/1.5 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
-}
-.dsp{
-  font-family:var(--serif);font-weight:400;letter-spacing:-.032em;line-height:.93;
-}
-
-/* ------------------------------------------------------------------ top bar */
-.top{position:relative;z-index:2;border-bottom:1px solid var(--hair)}
-.top .wrap{display:flex;align-items:center;gap:10px 22px;height:58px}
-.mark{font:400 18px/1 var(--serif);letter-spacing:-.01em;text-decoration:none}
-.mark::after{content:"";display:inline-block;width:5px;height:5px;margin-left:7px;border-radius:50%;
-  background:var(--amber);vertical-align:middle}
-.top .ver{color:var(--dim);font:500 10.5px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase}
-.top nav{margin-left:auto;display:flex;gap:8px 20px;align-items:baseline}
-.top nav a{
-  font:500 12.5px/1 var(--sans);color:var(--body);text-decoration:none;padding:4px 2px;
-  border-bottom:1px solid transparent;transition:color .18s,border-color .18s;
-}
-.top nav a:hover{color:var(--ink);border-bottom-color:var(--amber)}
-.top nav .k{color:var(--dim)}
-.top nav .k:hover{color:var(--amber)}
-
-/* -------------------------------------------------------------------- hero */
-.hero{position:relative;z-index:1;padding:clamp(44px,7vw,104px) 0 clamp(48px,7vw,96px)}
-.hero h1{margin:22px 0 0;font-size:clamp(36px,7.4vw,94px);max-width:19ch}
-.hero h1 em{font-style:normal;color:var(--amber)}
-.hero .lead{
-  margin-top:clamp(18px,2.4vw,30px);max-width:46ch;font-size:clamp(15px,1.35vw,18px);
-  line-height:1.55;color:var(--body);
-}
-.cta{
-  display:inline-flex;align-items:baseline;gap:12px;margin-top:clamp(22px,3vw,36px);
-  color:var(--amber);text-decoration:none;font:600 15px/1 var(--sans);
-  border-bottom:1px solid rgba(255,176,46,.4);padding-bottom:7px;transition:border-color .18s;
-}
-.cta:hover{border-bottom-color:var(--amber)}
-.cta small{font:500 10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
-
-/* --------------------------------------------------------------- scrub grid */
-.grid{margin-top:clamp(34px,5vw,72px);display:grid;gap:clamp(18px,2.2vw,30px);
-  grid-template-columns:repeat(auto-fit,minmax(min(100%,268px),1fr));max-width:880px}
-.tile{position:relative;min-width:0;cursor:ew-resize;border-radius:3px}
-.tile .shot{position:relative;display:block;border-radius:3px;overflow:hidden;background:#100e0d;
-  aspect-ratio:16/9;touch-action:pan-y;box-shadow:0 20px 44px -26px #000,0 0 0 1px var(--hair);
-  transition:box-shadow .22s,transform .22s}
-.tile:hover .shot,.tile:focus-visible .shot{transform:translateY(-2px);
-  box-shadow:0 26px 52px -24px #000,0 0 0 1px rgba(255,176,46,.45)}
-.shot .clip{position:absolute;inset:0;overflow:hidden;background:#0d0b0a}
-.shot img{position:absolute;top:0;left:0;width:0;height:0;transform-origin:0 0;
-  opacity:0;transition:opacity .16s linear;will-change:transform}
-.shot .clip.on img{opacity:1}
-.shot .empty{
-  position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
-  gap:5px;padding:16px;background:linear-gradient(180deg,#0d0b0a 40%,#100d0a);
-}
-.shot .empty b{font:400 15px/1.3 var(--serif);color:var(--ink)}
-.shot .empty span{font:500 11px/1.5 var(--mono);letter-spacing:.04em;color:var(--dim)}
-.shot .touch{
-  position:absolute;left:14px;bottom:14px;z-index:2;padding:6px 10px;border-radius:2px;
-  background:var(--amber);color:#17120a;font:700 10.5px/1 var(--mono);letter-spacing:.14em;
-  text-transform:uppercase;animation:hint 2.6s ease forwards;
-}
-@keyframes hint{0%{opacity:0;transform:translateY(4px)}14%,72%{opacity:1;transform:none}100%{opacity:0}}
-.foot{padding:13px 2px 0}
-.foot h3{font:400 16px/1.25 var(--serif);letter-spacing:-.01em}
-.foot .lab{margin-top:6px;letter-spacing:.12em;text-transform:none;font-size:11px}
-.foot .ok{color:var(--amber)}
-.foot .part{color:var(--dim)}
-.trackline{display:flex;align-items:center;gap:10px;margin-top:10px}
-.track{position:relative;flex:1;height:3px;border-radius:2px;background:rgba(244,238,229,.10)}
-.track .cov{position:absolute;inset:0 auto 0 0;background:rgba(255,176,46,.3);border-radius:2px}
-.track .fill{position:absolute;inset:0 auto 0 0;width:0;border-radius:2px;background:var(--amber)}
-.track .bound{position:absolute;top:-3px;bottom:-3px;width:1px;background:rgba(255,176,46,.65)}
-.foot .time{font:500 11px/1 var(--mono);color:var(--dim);min-width:11ch;text-align:right}
-.howto{margin-top:clamp(20px,2.6vw,30px);color:var(--dim)}
-.howto b{color:var(--body);font-weight:500}
-
-/* -------------------------------------------------------------------- bands */
-.band{position:relative;z-index:1;border-top:1px solid var(--hair);padding:clamp(64px,10vw,138px) 0}
-.band .lab{margin-bottom:clamp(20px,2.6vw,34px)}
-.h2{font-family:var(--serif);font-weight:400;font-size:clamp(27px,4.2vw,52px);
-  line-height:1.04;letter-spacing:-.025em;max-width:24ch}
-.h2 em{font-style:italic;color:var(--amber)}
-.body{max-width:52ch;margin-top:16px;font-size:clamp(14.5px,1.15vw,16.5px);color:var(--body)}
-
-/* stats */
-.stats{display:grid;gap:clamp(20px,3vw,40px);grid-template-columns:repeat(4,minmax(0,1fr))}
-.stat{min-height:104px}
-.stat .n{font-family:var(--serif);font-weight:400;font-size:clamp(34px,5.2vw,62px);
-  line-height:1;letter-spacing:-.035em;font-variant-numeric:tabular-nums;transition:color .3s}
-.stat .l{margin-top:10px;font:500 10.5px/1.5 var(--mono);letter-spacing:.16em;text-transform:uppercase}
-.stats .stale .n{color:var(--dim)}
-.stat .n.lit{color:var(--ink)}
-.stamp{margin-top:26px;font:500 11px/1.5 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
-.stamp.bad{color:var(--amber)}
-
-/* three beats */
-.beats{display:grid;gap:clamp(24px,3.4vw,48px);grid-template-columns:repeat(3,minmax(0,1fr))}
-.beat{padding-top:20px;border-top:1px solid var(--hair)}
-.beat .no{font:500 10.5px/1 var(--mono);letter-spacing:.22em;color:var(--amber)}
-.beat h3{margin-top:14px;font:400 clamp(19px,1.9vw,24px)/1.2 var(--serif);letter-spacing:-.015em}
-.beat p{margin-top:9px;font-size:14.5px;color:var(--body)}
-.beat .tok{display:block;margin-top:14px;font:500 11.5px/1.6 var(--mono);color:var(--dim);word-break:break-all}
-
-/* coverage */
-.covrow{margin-top:clamp(26px,3.4vw,44px);display:grid;gap:clamp(22px,3vw,44px);
-  grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:start}
-.tile.wide .shot{aspect-ratio:16/9}
-.rail{position:relative;height:34px;margin-top:16px;border-radius:3px;background:#100e0d;
-  box-shadow:inset 0 0 0 1px var(--hair);touch-action:none;cursor:ew-resize}
-.rail .cov{position:absolute;inset:0 auto 0 0;background:rgba(255,176,46,.26);border-radius:3px}
-.rail .fill{position:absolute;inset:0 auto 0 0;width:0;background:rgba(244,238,229,.5)}
-.rail .bound{position:absolute;top:-5px;bottom:-5px;width:1px;background:var(--amber)}
-.rail .knob{position:absolute;top:50%;left:0;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;
-  background:var(--amber);box-shadow:0 0 0 4px rgba(255,176,46,.18)}
-.raillab{display:flex;justify-content:space-between;gap:12px;margin-top:10px}
-.legend li{display:flex;gap:11px;align-items:flex-start;padding:13px 0;border-top:1px solid var(--hair)}
-.legend li:last-child{border-bottom:1px solid var(--hair)}
-.legend .dot{flex:0 0 auto;width:9px;height:9px;margin-top:7px;border-radius:2px;background:rgba(244,238,229,.18)}
-.legend .dot.p{background:rgba(255,176,46,.55)}
-.legend b{display:block;font:400 15px/1.3 var(--serif);color:var(--ink)}
-.legend span{display:block;margin-top:3px;font-size:13.5px;color:var(--body)}
-.legend .lab{margin-top:7px;letter-spacing:.1em;text-transform:none;font-size:10.5px}
-
-/* contribute flow */
-.flow{margin-top:clamp(22px,3vw,40px);max-width:64ch}
-.flow li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:4px 18px;padding:15px 0;
-  border-top:1px solid var(--hair)}
-.flow li:last-child{border-bottom:1px solid var(--hair)}
-.flow .n{font:500 11px/1.7 var(--mono);letter-spacing:.14em;color:var(--amber)}
-.flow p{font-size:clamp(14.5px,1.15vw,16.5px);color:var(--body)}
-.flow b{color:var(--ink);font-weight:500}
-.flow .aside{margin-top:22px;color:var(--dim);font:500 11px/1.6 var(--mono);letter-spacing:.06em}
-
-/* ------------------------------------------------------------------ footer */
-footer{position:relative;z-index:1;border-top:1px solid var(--hair);padding:clamp(48px,7vw,86px) 0 clamp(64px,8vw,110px)}
-.cmp{max-width:56ch;font:400 clamp(16px,1.6vw,21px)/1.5 var(--serif);color:var(--ink)}
-.cmp em{font-style:italic;color:var(--amber)}
-.key{margin-top:clamp(30px,4vw,52px);max-width:640px}
-.key summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:10px;
-  font:500 12.5px/1 var(--sans);color:var(--body);padding:8px 0;border-bottom:1px solid var(--hair)}
-.key summary::-webkit-details-marker{display:none}
-.key summary::before{content:"+";color:var(--amber);font:500 13px/1 var(--mono)}
-.key[open] summary::before{content:"–"}
-.key .inner{padding-top:16px}
-.key pre{font:500 12.5px/1.9 var(--mono);color:var(--body);overflow-x:auto}
-.key p{margin-top:12px;font-size:14px;color:var(--body);max-width:56ch}
-.fine{margin-top:clamp(38px,5vw,64px);display:flex;flex-wrap:wrap;gap:8px 26px;align-items:baseline;
-  padding-top:22px;border-top:1px solid var(--hair);font:500 11.5px/1.7 var(--mono);color:var(--dim)}
-.fine a{color:var(--body);text-decoration:none;border-bottom:1px solid var(--hair)}
-.fine a:hover{color:var(--amber);border-bottom-color:var(--amber)}
-.fine .end{margin-left:auto}
-
-/* ------------------------------------------------------------------ motion */
-.rise{opacity:0;transform:translateY(12px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),
-  transform .7s cubic-bezier(.2,.7,.2,1);transition-delay:calc(var(--i,0)*70ms)}
-.on .rise{opacity:1;transform:none}
-.rev{opacity:0;transform:translateY(14px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),
-  transform .8s cubic-bezier(.2,.7,.2,1)}
-.rev.in{opacity:1;transform:none}
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation:none!important;transition-duration:.001ms!important}
-  .rise,.rev{opacity:1;transform:none}
-}
-
-/* ------------------------------------------------------------------ narrow */
-@media (max-width:900px){
-  .covrow{grid-template-columns:minmax(0,1fr)}
-  .beats{grid-template-columns:minmax(0,1fr)}
-  .beat{padding-top:16px}
-}
-@media (max-width:760px){
-  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .top .ver{display:none}
-}
-@media (max-width:420px){
-  .grid{max-width:none}
-  .foot h3{font-size:15px}
-  .fine .end{margin-left:0}
-}
-</style>
+<title>OpenSeek — scrub previews for any player</title>
 </head>
 <body>
-<div id="app">
-  <header class="top">
-    <div class="wrap">
-      <a class="mark" href="#top">OpenSeek</a>
-      <span class="ver">seek previews</span>
-      <nav aria-label="Site">
-        <a class="k" href="#key">Get a key</a>
-        <a class="k" href="https://github.com/Yatin-Code/openseek-site">GitHub</a>
-      </nav>
-    </div>
-  </header>
 
-  <main id="top">
-    <!-- 1 · hero + scrub grid -->
-    <section class="hero">
-      <div class="wrap">
-        <p class="lab rise" style="--i:0">self-hosted · MIT · open</p>
-        <h1 class="dsp rise" style="--i:1">Seek previews for any player.<br><em>No account, no quota, no expiry.</em></h1>
-        <p class="lead rise" style="--i:2">Real frames from real films, under your pointer. Nothing is playing and nothing here is a
-          placeholder — every image is one rectangle cropped out of a public sprite sheet.</p>
-        <a class="cta rise" style="--i:3" href="#scrub">Stay and scrub <small aria-hidden="true">↓</small></a>
-      </div>
-      <div class="wrap">
-        <div class="grid" id="scrub" data-grid aria-busy="true"></div>
-        <p class="lab howto rise" style="--i:4" data-howto>Hover a poster · press and drag on touch · arrow keys when focused</p>
-      </div>
-    </section>
+<h1>OpenSeek</h1>
 
-    <!-- 2 · live index -->
-    <section class="band" id="index">
-      <div class="wrap">
-        <p class="lab">live from the registry</p>
-        <div class="stats" data-stats>
-          <div class="stat stale"><div class="n">2</div><div class="l">titles indexed</div></div>
-          <div class="stat stale"><div class="n">580</div><div class="l">previews</div></div>
-          <div class="stat stale"><div class="n">1.63</div><div class="l">hours of film covered</div></div>
-          <div class="stat"><div class="n lit">0</div><div class="l">accounts required</div></div>
-        </div>
-        <p class="stamp" data-stamp>reading the registry…</p>
-      </div>
-    </section>
+<p>Seek-preview thumbnails for video players, delivered as sprite sheets and a
+WebVTT cue track. A player looks up one title, reads one cue for the current
+playback position, and crops one tile out of a sheet.</p>
 
-    <!-- 3 · how it works -->
-    <section class="band" id="how">
-      <div class="wrap">
-        <p class="lab">how it works</p>
-        <h2 class="h2">Three steps, and the last one is a <em>text file</em>.</h2>
-        <ol class="beats" style="margin-top:clamp(26px,3.4vw,48px)">
-          <li class="beat">
-            <span class="no">01</span>
-            <h3>Ask by IMDb id + duration</h3>
-            <p>One lookup per title. No upload, no video, no account — the registry matches what you already have.</p>
-            <code class="tok">GET /v1/sprites?imdb_id=tt1022603&amp;duration_ms=5705536</code>
-          </li>
-          <li class="beat">
-            <span class="no">02</span>
-            <h3>Get a sheet and a VTT</h3>
-            <p>A WebVTT where every cue is one rectangle inside a packed JPEG sheet. Cues are positional, so slot
-              <i>i</i> is second <i>i</i> × interval.</p>
-            <code class="tok">00:34:20.000 --&gt; 00:34:30.000<br>sheet-320x180-2.jpg#xywh=960,360,320,180</code>
-          </li>
-          <li class="beat">
-            <span class="no">03</span>
-            <h3>Crop one tile, in anything</h3>
-            <p>Web, TV, phone, desktop. Floor lookup is a loop over a list you already hold, and the files never
-              expire, so you can cache them like any other image.</p>
-            <code class="tok"># last cue whose start ≤ position, or nothing at all</code>
-          </li>
-        </ol>
-      </div>
-    </section>
+<h2>What this is</h2>
 
-    <!-- 4 · coverage honesty -->
-    <section class="band" id="coverage">
-      <div class="wrap">
-        <p class="lab">coverage, honestly</p>
-        <h2 class="h2">A partial title <em>looks</em> partial.</h2>
-        <p class="body" data-covbody>Loading the index…</p>
-        <div class="covrow">
-          <div data-covtile></div>
-          <ul class="legend">
-            <li><span class="dot"></span><div>
-              <b>Nothing indexed yet here</b>
-              <span>You are before the first preview anyone contributed. The registry has no frame for this second, so we
-                draw no frame.</span></div></li>
-            <li><span class="dot p"></span><div>
-              <b>No preview here yet</b>
-              <span>Past what viewers have banked. The floor lookup would happily return the last tile forever — the
-                coverage bound is what stops it, and the tile stays dark.</span>
-              <span class="lab" data-covhint>drag the rail to the end</span></div></li>
-          </ul>
-        </div>
-      </div>
-    </section>
+<p>OpenSeek indexes films by metadata id and duration, serves the preview
+assets, and merges new coverage from players that watch.</p>
 
-    <!-- 5 · contribute -->
-    <section class="band" id="contribute">
-      <div class="wrap">
-        <p class="lab">contribute</p>
-        <h2 class="h2">The people watching <em>fill the gaps</em>.</h2>
-        <ol class="flow">
-          <li><span class="n">01</span><p>A player with contribute on captures <b>one tile per interval</b> as the film plays.</p></li>
-          <li><span class="n">02</span><p>Every <b>48 banked tiles</b> flush as one bundle: title block, VTT, sprite sheets.</p></li>
-          <li><span class="n">03</span><p>The registry <b>merges same-title bundles slot by slot</b>, so coverage grows without anyone re-uploading a film.</p></li>
-          <li><span class="n">04</span><p><b>Workers stripe the rest.</b> Until they do, past the bound reads as no preview — never a stale frame.</p></li>
-        </ol>
-        <p class="aside">The playback client is released (v0.1.0); the capture half is built and not in a release yet.</p>
-      </div>
-    </section>
-  </main>
+<ul>
+<li>Send a title's IMDb or TMDB id plus <code>duration_ms</code>; get back a
+WebVTT file and JPEG sprite sheets of 320&times;180 tiles packed into sheets,
+covering that film at a configurable interval (5, 10 or 30 seconds).</li>
+<li>Any player can render a preview for a scrub position by reading one cue and
+cropping one tile. No vendor account, no quota, no URL expiry.</li>
+<li>Coverage is per-title and can be partial. Every lookup reports
+<code>status</code> and <code>covered_until_ms</code>, so a player knows where
+to stop drawing instead of showing a stale frame from the tail of the file.</li>
+<li>Coverage grows from watching. A player with contribution enabled banks
+tiles while the title plays, flushes a bundle, and the registry merges it into
+the existing version slot by slot.</li>
+</ul>
 
-  <!-- 6 · footer -->
-  <footer>
-    <div class="wrap">
-      <p class="cmp">Closed preview APIs want an account, cap your daily lookups and expire their URLs after hours.
-        This one asks for <em>nothing</em> — and you can host it yourself, because it is MIT.</p>
-      <details class="key" id="key">
-        <summary>Get a key (only for contributing)</summary>
-        <div class="inner">
-          <pre>python3 mint_key.py myplayer    # on the registry host — prints the key once</pre>
-          <p>Scraping previews needs no key at all: sprite sheets and VTTs are public files. Keys only gate
-            <b>POST /v1/contribute</b> and the ingest jobs, and their usage is counted rather than enforced.</p>
-        </div>
-      </details>
-      <p class="fine">
-        <a href="https://github.com/Yatin-Code/openseek-site">openseek-site</a>
-        <a href="https://github.com/Yatin-Code/openseek-sdk">openseek-sdk</a>
-        <a href="https://github.com/Yatin-Code/openseek-sdk/blob/main/docs/wire.md">wire contract</a>
-        <a href="https://github.com/Yatin-Code/openseek-site/issues">issues</a>
-        <span class="end">MIT · playback v0.1.0</span>
-      </p>
-    </div>
-  </footer>
-</div>
-<script>
-"use strict";
-/* ----------------------------------------------------------- config + truth */
-var API = { status: "/api/status", catalog: "/api/catalog" };
-/* today's numbers, used until (or unless) the registry answers */
-var LAST = { titles: 2, previews: 580, hours: 1.63, accounts: 0 };
-var CDN = "https://openpeektilescb7f1978d2.blob.core.windows.net/tiles";
-/* fallback for versions the catalog reports without a vtt_url — Moana's store
-   directory really is t2-v1, not tt27419466-v1 */
-var DEMO = {
-  tt1022603: { imdb:"tt1022603", title:"(500) Days of Summer", dur:5705536, int:10, cues:571,
-               status:"complete", cov:5705536, vtt:CDN + "/tt1022603-v1/thumbnails.vtt" },
-  tt27419466:{ imdb:"tt27419466", title:"Moana", dur:6939392, int:10, cues:9,
-               status:"pending", cov:150000, vtt:CDN + "/t2-v1/thumbnails.vtt" }
-};
+<h2>SDK</h2>
 
-/* ------------------------------------------------------------------ helpers */
-function $(s, r) { return (r || document).querySelector(s); }
-function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
-function on(n, e, f) { n.addEventListener(e, f, false); }
-function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-function esc(s) { return String(s).replace(/[&<>"]/g, function (c) {
-  return c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&quot;"; }); }
-function pct(a, b) { return b > 0 ? clamp(a / b, 0, 1) * 100 : 0; }
-function hhmmss(ms) {
-  var t = Math.floor(Math.max(0, ms) / 1000), h = (t / 3600) | 0, m = ((t % 3600) / 60) | 0, s = t % 60;
-  return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-}
-function span(ms) {
-  var t = Math.floor(Math.max(0, ms) / 1000), h = (t / 3600) | 0, m = ((t % 3600) / 60) | 0, s = t % 60;
-  return h ? h + "h " + (m < 10 ? "0" : "") + m + "m" : m + "m " + s + "s";
-}
-function clock(d) {
-  return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
-}
+<p>Two packages, both dependency-free:</p>
 
-/* ---------------------------------------------------------------------- vtt */
-/* "HH:MM:SS.mmm" (hours always zero-padded) or "MM:SS.mmm" -> ms */
-function ts(raw) {
-  var p = String(raw).trim().split(":");
-  if (p.length < 2 || p.length > 3) return null;
-  var s = p[p.length - 1].split(".");
-  var h = p.length === 3 ? +p[0] : 0, m = +p[p.length - 2], sec = +s[0], ms = s.length > 1 ? +s[1] : 0;
-  if (![h, m, sec, ms].every(function (v) { return isFinite(v); })) return null;
-  if (m > 59 || sec > 59 || ms > 999) return null;
-  return ((h * 3600 + m * 60 + sec) * 1000) + ms;
-}
-/* WEBVTT -> [{startMs,url,x,y,w,h,i}]. Sheet-relative payloads resolve against
-   the VTT's directory. Geometry comes from each cue, never from an assumption:
-   stored sheets are 10x10, contributor sheets 5x5, both real. */
-function parseVtt(text, vttUrl) {
-  var base = vttUrl.slice(0, vttUrl.lastIndexOf("/")), cues = [], pending = null,
-      lines = String(text).split("\n");
-  for (var n = 0; n < lines.length; n++) {
-    var line = lines[n].trim();
-    if (line === "") { pending = null; continue; }
-    if (line.indexOf("-->") > -1) { pending = ts(line.split("-->")[0]); continue; }
-    if (line.indexOf("WEBVTT") === 0 || line.indexOf("NOTE") === 0) continue;
-    if (pending == null) continue;
-    var at = pending, hash = line.indexOf("#xywh=");
-    pending = null;
-    if (hash < 0) continue;
-    var raw = line.slice(0, hash).trim(), box = line.slice(hash + 6).split(",");
-    if (box.length !== 4) continue;
-    var xy = [+box[0], +box[1], +box[2], +box[3]];
-    if (xy.some(function (v) { return !isFinite(v) || v < 0; })) continue;
-    cues.push({ startMs: at, url: /^https?:\/\//.test(raw) ? raw : base + "/" + raw,
-                sheet: raw.split("/").pop(), x: xy[0], y: xy[1], w: xy[2], h: xy[3], i: cues.length });
-  }
-  cues.sort(function (a, b) { return a.startMs - b.startMs; });
-  for (var q = 0; q < cues.length; q++) cues[q].i = q;
-  return cues;
-}
-/* last cue whose start is <= pos */
-function floorCue(cues, pos) {
-  var hit = null;
-  for (var n = 0; n < cues.length; n++) { if (cues[n].startMs <= pos) hit = cues[n]; else break; }
-  return hit;
-}
-/* two different kinds of nothing: before the first cue, and past coverage */
-function previewAt(t, pos) {
-  if (t.cov != null && pos > t.cov) return { kind: "empty", why: "past" };
-  var cue = floorCue(t.cues, pos);
-  return cue ? { kind: "tile", cue: cue }
-             : { kind: "empty", why: "early", at: t.cues.length ? t.cues[0].startMs : 0 };
-}
+<ul>
+<li><strong>Kotlin (JVM, pure).</strong> Uses only the standard library plus
+<code>javax.imageio</code>. Handles the playback half: fetch the lookup, parse
+the VTT, resolve a tile for a position, crop it. The contribution half
+(<code>ContributeBatch</code>, <code>uploadContribution</code>) is built on a
+branch and is not released.</li>
+<li><strong>JavaScript (browser, zero deps).</strong> The same two halves:
+lookup, VTT parse, floor lookup with the coverage bound, sheet cache and canvas
+crop; plus capture and bundle upload.</li>
+</ul>
 
-/* ------------------------------------------------------------------- sheets */
-/* the VTT is fetched once per URL; every caller still gets its own cues, so a
-   re-render (the live catalog landing) can never leave a tile empty */
-var cache = {};
-function loadTrack(t) {
-  if (!cache[t.vtt]) {
-    cache[t.vtt] = fetch(t.vtt).then(function (r) {
-      if (!r.ok) throw new Error("VTT HTTP " + r.status);
-      return r.text();
-    }).then(function (txt) {
-      var cues = parseVtt(txt, t.vtt);
-      if (!cues.length) throw new Error("no cues in the VTT");
-      return cues;
-    })["catch"](function (e) { delete cache[t.vtt]; throw e; });
-  }
-  return cache[t.vtt].then(function (cues) { t.cues = cues; return t; });
-}
-var primed = {};
-function sheet(url) {
-  if (!url || primed[url]) return;
-  primed[url] = 1;
-  var i = new Image();
-  i.src = url;
-}
-/* scale the whole sheet by the cue's own tile size and slide it out of view */
-function paint(clip, img, cue) {
-  clip.style.aspectRatio = cue.w + " / " + cue.h;
-  var put = function () {
-    if (!img.naturalWidth) return;
-    var k = (clip.clientWidth || cue.w) / cue.w;
-    img.style.width = Math.round(img.naturalWidth * k) + "px";
-    img.style.height = Math.round(img.naturalHeight * k) + "px";
-    img.style.transform = "translate3d(" + (-cue.x * k) + "px," + (-cue.y * k) + "px,0)";
-    clip.classList.add("on");
-  };
-  clip.__put = put;
-  if (img.getAttribute("src") === cue.url && img.naturalWidth) { put(); return; }
-  img.onload = put;
-  img.onerror = function () { clip.classList.remove("on"); };
-  img.src = cue.url;
-}
-function followSize(clip) {
-  if (window.ResizeObserver) new ResizeObserver(function () { if (clip.__put) clip.__put(); }).observe(clip);
-  else on(window, "resize", function () { if (clip.__put) clip.__put(); });
-}
+<p>Source: <a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a>.
+Publishing is prepared but not live: the npm package is named
+<code>@openseek/sdk</code> and the Maven coordinates are
+<code>tv.openseek:openseek-sdk-jvm</code>, but neither is on a public registry
+yet. Until then, read the sources in the repo.</p>
 
-/* ----------------------------------------------------------------- scrubber */
-function Tile(node, t) {
-  this.n = node; this.t = t; this.pos = 0;
-  this.shot = $(".shot", node);
-  this.clip = $(".clip", node);
-  this.img = $("img", node);
-  this.empty = $(".empty", node);
-  this.fill = $(".fill", node);
-  this.cov = $(".cov", node);
-  this.bound = $(".bound", node);
-  this.knob = $(".knob", node);
-  this.rail = $(".rail", node);
-  this.time = $(".time", node);
-  followSize(this.clip);
-}
-Tile.prototype.go = function (ms) {
-  var t = this.t;
-  this.pos = clamp(ms, 0, t.dur);
-  var p = previewAt(t, this.pos), f = pct(this.pos, t.dur);
-  if (this.fill) this.fill.style.width = f + "%";
-  if (this.knob) this.knob.style.left = f + "%";
-  if (this.time) this.time.textContent = hhmmss(this.pos) + " / " + hhmmss(t.dur);
-  this.n.setAttribute("aria-valuenow", Math.round(this.pos));
-  this.n.setAttribute("aria-valuetext", hhmmss(this.pos));
-  if (p.kind === "tile") {
-    this.empty.hidden = true;
-    paint(this.clip, this.img, p.cue);
-    var nx = t.cues[p.cue.i + 1];
-    if (nx) sheet(nx.url);
-  } else {
-    this.clip.classList.remove("on");
-    this.empty.hidden = false;
-    this.empty.innerHTML = p.why === "past"
-      ? "<b>No preview here yet</b><span>contributed by viewers so far</span>"
-      : "<b>Nothing indexed yet here</b><span>the first preview starts at " + hhmmss(p.at) + "</span>";
-  }
-};
-Tile.prototype.bind = function (opt) {
-  var self = this, grab = false;
-  var at = function (clientX, el) {
-    var r = el.getBoundingClientRect();
-    self.go(clamp((clientX - r.left) / (r.width || 1), 0, 1) * self.t.dur);
-  };
-  var drivers = this.rail ? [this.shot, this.rail] : [this.shot];
-  drivers.forEach(function (el) {
-    on(el, "pointerdown", function (e) {
-      if (e.pointerType === "touch") { touchHint(self); grab = true; el.setPointerCapture(e.pointerId); }
-      at(e.clientX, el); e.preventDefault();
-    });
-    on(el, "pointermove", function (e) {
-      if (e.pointerType === "mouse") { at(e.clientX, el); return; }
-      if (grab) at(e.clientX, el);
-    });
-    on(el, "pointerup", function (e) { grab = false; try { el.releasePointerCapture(e.pointerId); } catch (x) {} });
-    on(el, "pointercancel", function () { grab = false; });
-  });
-  on(this.shot, "pointerleave", function (e) { if (e.pointerType === "mouse") self.go(0); });
-  on(this.shot, "pointerenter", function (e) { if (e.pointerType === "mouse") at(e.clientX, self.shot); });
-  on(this.n, "keydown", function (e) {
-    var st = self.t.int * 1000, cur = self.pos, big = st * 10, d = 0;
-    switch (e.key) {
-      case "ArrowLeft": case "ArrowDown": d = -(e.shiftKey ? big : st); break;
-      case "ArrowRight": case "ArrowUp": d = e.shiftKey ? big : st; break;
-      case "Home": self.go(0); e.preventDefault(); return;
-      case "End": self.go(self.t.dur); e.preventDefault(); return;
-      default: return;
-    }
-    self.go(cur + d); e.preventDefault();
-  });
-  on(this.n, "focus", function () { if (opt) opt(self); });
-};
-var touched = false;
-try { touched = !!localStorage.getItem("openseek.touched"); } catch (e) {}
-function touchHint(tile) {
-  if (touched) return;
-  touched = true;
-  try { localStorage.setItem("openseek.touched", "1"); } catch (e) {}
-  var h = $(".touch", tile.n);
-  if (!h) return;
-  h.hidden = false;
-  setTimeout(function () { h.hidden = true; }, 2600);
-}
+<h3>Kotlin — playback</h3>
 
-/* -------------------------------------------------------------------- markup */
-function tileHTML(t, cls) {
-  var partial = t.status !== "complete";
-  return '<article class="tile ' + (cls || "") + '" tabindex="0" role="slider" ' +
-    'aria-label="Scrub previews for ' + esc(t.title) + '" aria-valuemin="0" aria-valuemax="' + t.dur +
-    '" aria-valuenow="0" aria-valuetext="00:00:00">' +
-    '<span class="shot">' +
-      '<span class="clip"><img alt="Preview frame from ' + esc(t.title) + '" decoding="async"></span>' +
-      '<span class="empty" hidden></span><span class="touch" hidden>drag across</span>' +
-    '</span>' +
-    '<div class="foot"><h3>' + esc(t.title) + "</h3>" +
-      '<p class="lab">' + t.imdb + " · " + t.cues + " previews · every " + t.int + "s</p>" +
-      '<p class="lab ' + (partial ? "part" : "ok") + '">' +
-        (partial ? "partial · " + span(t.cov) + " of " + span(t.dur) : "complete · " + span(t.dur)) + "</p>" +
-      '<div class="trackline"><span class="track">' +
-        '<span class="cov" style="width:' + pct(t.cov, t.dur).toFixed(2) + '%"></span>' +
-        '<span class="fill"></span>' +
-        (partial ? '<span class="bound" style="left:' + pct(t.cov, t.dur).toFixed(2) + '%"></span>' : "") +
-      '</span><span class="time">00:00:00</span></div>' +
-    "</div></article>";
-}
+<pre><code>import openseek.OpenSeekClient
+import openseek.thumbnailFor
 
-/* --------------------------------------------------------------- scrub fail */
-function dead(tile, why) {
-  tile.clip.classList.remove("on");
-  tile.empty.hidden = false;
-  tile.empty.innerHTML = "<b>Preview unavailable</b><span>" + esc(why) + "</span>";
-}
+val client = OpenSeekClient("https://openseek.duckdns.org",
+                            apiKey = System.getenv("OPENSEEK_KEY"))
+val track = client.loadMovieTrack(imdbId = "tt0111161",
+                                 durationMs = player.duration) ?: return
+// during a scrub, positionMs = current playback position:
+val cue = track.thumbnailFor(positionMs) ?: return   // null past coverage
+val tile = client.cropTile(client.sheetBytes(cue.imageUrl), cue)</code></pre>
 
-/* --------------------------------------------------------------- render grid */
-function drawGrid(list) {
-  var grid = $("[data-grid]");
-  grid.innerHTML = list.map(function (t) { return tileHTML(t); }).join("");
-  grid.setAttribute("aria-busy", "false");
-  list.forEach(function (t, i) {
-    var tile = new Tile(grid.children[i], t);
-    tile.bind();
-    /* poster = cue 0, the first real frame of the film */
-    loadTrack(t).then(function () { tile.go(0); })
-      .catch(function (e) { dead(tile, e.message || "the VTT could not be fetched"); });
-  });
-}
+<h3>JavaScript — playback</h3>
 
-/* ------------------------------------------------------------- partial title */
-function drawCoverage(t) {
-  $("[data-covbody]").innerHTML = "<b style='color:var(--ink);font-weight:500'>" + esc(t.title) + "</b> has " +
-    t.cues + " previews covering " + span(t.cov) + " of " + span(t.dur) + ". The tile below is that file — drag it " +
-    "past the amber line and it goes dark instead of lying.";
-  var host = $("[data-covtile]");
-  host.innerHTML =
-    '<div class="tile wide" tabindex="0" role="slider" aria-label="Scrub previews for ' + esc(t.title) +
-    '" aria-valuemin="0" aria-valuemax="' + t.dur + '"><span class="shot">' +
-    '<span class="clip"><img alt="Preview frame from ' + esc(t.title) + '" decoding="async"></span>' +
-    '<span class="empty" hidden></span></span>' +
-    '<div class="rail"><span class="cov" style="width:' + pct(t.cov, t.dur).toFixed(2) + '%"></span>' +
-    '<span class="fill"></span><span class="bound" style="left:' + pct(t.cov, t.dur).toFixed(2) + '%"></span>' +
-    '<span class="knob"></span></div>' +
-    '<div class="raillab"><span class="lab">0:00</span><span class="lab">' + span(t.dur) + " · " +
-    (t.cues) + " previews</span></div></div>";
-  var tile = new Tile(host.firstChild, t);
-  tile.bind();
-  loadTrack(t).then(function () { tile.go(Math.min(30000, t.cov / 2)); })
-    .catch(function (e) { dead(tile, e.message || "the VTT could not be fetched"); });
-}
+<pre><code>import { loadMovieTrack, paintPeek } from "@openseek/sdk";
 
-/* ------------------------------------------------------------------- numbers */
-function liveNumbers(catalog, status) {
-  var titles = (status && status.titles) || catalog.titles || 0, cues = 0, ms = 0;
-  (catalog.entries || []).forEach(function (e) {
-    (e.versions || []).forEach(function (v) {
-      cues += v.cue_count || 0;
-      ms += (v.covered_until_ms == null ? v.duration_ms : v.covered_until_ms);
-    });
-  });
-  return [String(titles), String(cues), (ms / 3600000).toFixed(2), "0"];
-}
-function paintNumbers(values, stamp, bad) {
-  $$("[data-stats] .stat").forEach(function (b, i) {
-    var n = $(".n", b);
-    n.textContent = values[i];
-    n.classList.toggle("lit", i === 3 || !bad);
-    b.classList.toggle("stale", !!bad);
-  });
-  var s = $("[data-stamp]");
-  s.textContent = stamp;
-  s.classList.toggle("bad", !!bad);
-}
+const track = await loadMovieTrack("https://openseek.duckdns.org",
+  { imdb_id: "tt0111161", duration_ms: video.duration * 1000 });
+if (!track) return;                       // not indexed: no preview
+// during a scrub, positionMs = current playback position:
+const shown = await paintPeek(canvas, track, positionMs);
+shown ? popup.show() : popup.hide();      // false = past covered_until_ms</code></pre>
 
-/* --------------------------------------------------------------------- boot */
-function flatten(catalog) {
-  var out = [];
-  (catalog.entries || []).forEach(function (e) {
-    (e.versions || []).slice(0, 1).forEach(function (v) {
-      var d = DEMO[e.imdb_id] || {};
-      out.push({
-        imdb: e.imdb_id, title: e.title, dur: v.duration_ms, int: v.interval_s,
-        cues: v.cue_count, status: v.status,
-        cov: v.covered_until_ms == null ? v.duration_ms : v.covered_until_ms,
-        vtt: v.vtt_url || d.vtt || ""
-      });
-    });
-  });
-  return out.filter(function (t) { return t.vtt && t.dur; });
-}
-function fallbackList() {
-  return Object.keys(DEMO).map(function (k) {
-    var d = DEMO[k];
-    return { imdb: d.imdb, title: d.title, dur: d.dur, int: d.int, cues: d.cues,
-             status: d.status, cov: d.cov, vtt: d.vtt };
-  });
-}
-function json(path) {
-  return fetch(path, { headers: { Accept: "application/json" } }).then(function (r) {
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }).catch(function (e) { return { __err: e }; });
-}
+<p>Both packages use floor semantics: the last cue at or before the position,
+corrected by the <code>scale</code> the registry reports, and bounded by
+<code>covered_until_ms</code>.</p>
 
-var lastKnown = false;
-function stale() {
-  paintNumbers([String(LAST.titles), String(LAST.previews), LAST.hours.toFixed(2), "0"],
-    "registry unreachable · last known", true);
-  $("[data-howto]").innerHTML = "<b>registry unreachable · showing the last known index</b> — the posters " +
-    "above are served from the public CDN, so they still scrub";
-}
-function boot() {
-  var seed = fallbackList();
-  drawGrid(seed);
-  drawCoverage(seed.filter(function (t) { return t.status !== "complete"; })[0] || seed[0]);
+<h2>Get API</h2>
 
-  Promise.all([json(API.status), json(API.catalog)]).then(function (r) {
-    var status = r[0], catalog = r[1], okS = !status.__err, okC = !catalog.__err;
-    if (!okC) { lastKnown = true; return stale(); }
-    var list = flatten(catalog);
-    if (list.length) {
-      drawGrid(list);
-      var partial = list.filter(function (t) { return t.status !== "complete"; })[0];
-      if (partial) drawCoverage(partial);
-    }
-    paintNumbers(liveNumbers(catalog, okS ? status : null),
-      "fetched " + clock(new Date()) + (okS && status.service ? " · " + status.service : ""), false);
-  })["catch"](stale);
-}
+<p>The running registry is at <code>https://openseek.duckdns.org</code>.</p>
 
-if (document.body) boot();
-document.body.classList.add("on");
-/* hero reveals with .rise; everything below the fold gets its own trigger */
-if (window.IntersectionObserver && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) {
-  var io = new IntersectionObserver(function (es) {
-    es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
-  }, { rootMargin: "-6% 0px -6% 0px" });
-  $$(".band .h2, .band .body, .band .beats, .band .covrow, .band .flow, .band .stats, .band .lab, .cmp, .key, .fine")
-    .forEach(function (n) { n.classList.add("rev"); io.observe(n); });
-}
-</script>
+<ul>
+<li><code>GET /v1/status</code> — <strong>OPEN</strong>. One-line JSON service
+state.</li>
+<li><code>GET /v1/catalog</code> — <strong>OPEN</strong>. Browsable index of
+every indexed title. Each version carries <code>vtt_url</code>,
+<code>cue_count</code>, <code>interval_s</code>, <code>status</code> and
+<code>covered_until_ms</code>.</li>
+<li><code>GET /v1/titles?imdb_id=…</code> — <strong>OPEN</strong>. All versions
+of one title.</li>
+<li><code>GET /v1/keys/validate</code> — <strong>OPEN</strong>. Takes
+<code>X-API-Key</code>, returns <code>{valid, name}</code>. Does not count
+against quota.</li>
+<li><code>GET /v1/sprites?imdb_id=…&amp;duration_ms=…</code> —
+<strong>KEYED</strong>. The main lookup. Returns <code>vtt_url</code>,
+<code>version</code>, <code>status</code>, <code>covered_until_ms</code> and
+<code>scale</code>.</li>
+<li><code>POST /v1/contribute</code> — <strong>KEYED</strong>. Contributor
+upload, multipart: a JSON metadata part plus <code>thumbnails.vtt</code> plus
+<code>sheet-*.jpg</code> files.</li>
+<li><code>GET /s/…</code> — <strong>OPEN</strong>. Static VTT and sheet files
+when no CDN fronts them.</li>
+</ul>
+
+<h3>Getting a key</h3>
+
+<p>Keys are minted on the registry host and printed once:</p>
+
+<pre><code>python3 mint_key.py &lt;name&gt;</code></pre>
+
+<p>Revoke one by deleting its row:</p>
+
+<pre><code>DELETE FROM keys WHERE key='…';</code></pre>
+
+<h3>Lookup example</h3>
+
+<pre><code>curl -H 'X-API-Key: &lt;your key&gt;' \
+  'https://openseek.duckdns.org/v1/sprites?imdb_id=tt0111161&amp;duration_ms=8280000'</code></pre>
+
+<p>The response:</p>
+
+<pre><code>{
+  "media_type": "movie",
+  "title": "The Shawshank Redemption",
+  "imdb_id": "tt0111161",
+  "vtt_url": "https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt",
+  "version": 1,
+  "source_duration_ms": 8280000,
+  "scale": 1.0,
+  "status": "complete",
+  "covered_until_ms": 8280000
+}</code></pre>
+
+<p><code>scale</code> is the ratio of the requested duration to the indexed
+source duration, so a player reporting a slightly different runtime still lands
+on the right cue. <code>status</code> is <code>pending</code> while coverage is
+partial and <code>complete</code> when it reaches the end.</p>
+
+<h3>Limits and current policy</h3>
+
+<ul>
+<li>No rate limiting is implemented.</li>
+<li>Per-key quota defaults to 1,000,000 requests per day, counted per UTC day
+and <strong>not enforced</strong>. One flag flips 429s on.</li>
+<li>An unknown or malformed key returns 401.</li>
+<li>Contributor uploads are capped at 50 MB.</li>
+<li>Lookup matches the nearest version within &plusmn;240 s of the reported
+duration.</li>
+<li>Accepted intervals are 5, 10 or 30 s, and a version needs at least 5 cues.</li>
+<li>Up to 5 versions per title.</li>
+</ul>
+
+<h2>Open-source guide</h2>
+
+<h3>Run it yourself</h3>
+
+<p>Four components:</p>
+
+<ul>
+<li>A sprite generator: ffmpeg plus Pillow. Reads frames at each timestamp,
+scales and crops them to 320&times;180, packs them into JPEG sheets, writes
+<code>thumbnails.vtt</code> with <code>#xywh=</code> cue payloads. Needs ffmpeg
+on <code>PATH</code> and <code>pip install Pillow</code>.</li>
+<li>A static and VTT server: Python standard library only, no dependencies. It
+serves the sheets and the VTT over <code>/s/</code> with long cache headers.</li>
+<li>A registry: Python standard library plus <code>sqlite3</code>. Holds
+titles, versions, keys and the request ledger, and serves the API above.</li>
+<li>An optional blob or CDN sync: mirrors the store to object storage so a CDN
+can front the sheets. Sheets are immutable once written, which is what makes
+the sync safe.</li>
+</ul>
+
+<p>Shortest path to a working local setup:</p>
+
+<pre><code># 1. generate previews for a local file (needs ffmpeg + Pillow)
+python3 spritegen/spritegen.py --id tt0111161 \
+    --in movie.mp4 --out store/tt0111161/ --interval 10
+
+# 2. serve the store (standard library only)
+python3 server/server.py --store ./store --port 8080
+
+# 3. or run the registry with its own database
+python3 registry/init_db.py
+python3 registry/registry.py --port 8081</code></pre>
+
+<p><code>init_db.py</code> is idempotent: it applies the schema and then any
+migrations, so it is safe to re-run on an existing database. The generated
+<code>store/</code> is a plain directory of files; no database is needed to
+serve it. The end-to-end test runs on the standard library alone, with no
+ffmpeg and no Pillow:</p>
+
+<pre><code>python3 tests/test_e2e.py</code></pre>
+
+<p>MIT licensed.</p>
+
+<h3>Work on it / contribute</h3>
+
+<p>Repositories:</p>
+
+<ul>
+<li><a href="https://github.com/Yatin-Code/openseek-sdk">openseek-sdk</a> —
+Kotlin and JavaScript client packages.</li>
+<li><a href="https://github.com/Yatin-Code/NuvioMobile">NuvioMobile</a> — the
+player that consumes the SDK and ships the capture path.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-site">openseek-site</a> —
+this page.</li>
+</ul>
+
+<p>Repo map at a glance: <code>packages/kotlin</code> and
+<code>packages/js</code> are the SDKs; <code>docs/wire.md</code> pins the
+request and response contract; <code>docs/PUBLISHING.md</code> holds the
+release checklist. On the service side the generator, the static server and the
+registry are separate top-level directories.</p>
+
+<p>How a contribution actually travels:</p>
+
+<ol>
+<li>The player banks tiles as the title plays — one tile per interval step,
+kept in memory and then on disk.</li>
+<li>At the bundle boundary (48 tiles) it flushes them as a multipart
+<code>POST /v1/contribute</code> carrying a JSON metadata part,
+<code>thumbnails.vtt</code> and the <code>sheet-*.jpg</code> files.</li>
+<li>The registry stores the upload in quarantine. Nothing under
+<code>/s/</code> is served from quarantine.</li>
+<li>Verification runs on the quarantined copy: the VTT must parse, every cue
+must reference a sheet that exists, the tile boxes must be inside the sheet
+image, sampled tiles must decode as valid non-blank JPEGs, cue count must be at
+least 5 and the interval must be one of 5, 10 or 30 s.</li>
+<li>On success the contribution is promoted: it becomes a new version, or it
+merges slot by slot into an existing version when the title and duration match
+within &plusmn;15 s. Slots are positional (cue <em>i</em> is second
+<em>i</em>&thinsp;&times;&thinsp;interval), the first writer wins on overlap, and
+colliding sheet filenames are renamed rather than rewritten, so bytes a player
+already cached never change. Coverage extends to the new last cue.</li>
+<li>If it cannot merge, it is rejected with a reason. Duplicate submissions,
+interval mismatch and tile-size mismatch are the three rejections.</li>
+</ol>
+
+<h2>Licence and source</h2>
+
+<p>MIT licensed. Everything above is open source and self-hostable: run your
+own generator, your own store and your own registry, and point your players at
+it.</p>
+
+<ul>
+<li><a href="https://github.com/Yatin-Code/openseek-sdk">github.com/Yatin-Code/openseek-sdk</a>
+— SDK, both languages.</li>
+<li><a href="https://github.com/Yatin-Code/NuvioMobile">github.com/Yatin-Code/NuvioMobile</a>
+— reference player.</li>
+<li><a href="https://github.com/Yatin-Code/openseek-site">github.com/Yatin-Code/openseek-site</a>
+— this page.</li>
+</ul>
+
 </body>
 </html>
