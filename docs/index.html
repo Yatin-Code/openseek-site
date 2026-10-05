@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSeek Docs</title>
+<meta name="description" content="OpenSeek reference: lookup, authentication, VTT and coverage, limits, errors.">
+</head>
+<body>
+
+<h1>OpenSeek Docs</h1>
+
+<p>This is the short reference for the hosted registry at <code>https://openseek.duckdns.org</code>. One lookup returns a WebVTT cue track; each cue names a 320&times;180 tile inside a JPEG sheet. Start at <a href="/">OpenSeek</a>, manage keys on the <a href="/dashboard/">dashboard</a>, and read the client lifecycle on the <a href="/sdk/">SDK page</a>.</p>
+
+<ul>
+<li><a href="#quickstart">1. Quickstart</a></li>
+<li><a href="#auth">2. Authentication</a></li>
+<li><a href="#lookup">3. Lookup</a></li>
+<li><a href="#vtt">4. VTT and coverage</a></li>
+<li><a href="#limits">5. Limits</a></li>
+<li><a href="#errors">6. Errors</a></li>
+</ul>
+
+<h2 id="quickstart">1. Quickstart</h2>
+
+<p>One title takes three requests. The lookup is keyed; the VTT and the sheets are open.</p>
+
+<ol>
+<li>
+<p><strong>Look the title up.</strong> Send the metadata id and the runtime the player reports, with the key in an <code>X-API-Key</code> header:</p>
+<pre><code>curl -H 'X-API-Key: &lt;your key&gt;' \
+  'https://openseek.duckdns.org/v1/sprites?imdb_id=tt0111161&amp;duration_ms=8280000'</code></pre>
+<p>The response carries the cue track URL, which version was matched, and how far coverage reaches:</p>
+<pre><code>{
+  "media_type": "movie",
+  "title": "The Shawshank Redemption",
+  "imdb_id": "tt0111161",
+  "vtt_url": "https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt",
+  "version": 1,
+  "source_duration_ms": 8280000,
+  "scale": 1.0,
+  "status": "complete",
+  "covered_until_ms": 8280000
+}</code></pre>
+</li>
+<li>
+<p><strong>Fetch the VTT.</strong> No key is needed for this request:</p>
+<pre><code>curl 'https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt'</code></pre>
+</li>
+<li>
+<p><strong>Crop the tile.</strong> Each cue payload has the form <code>sheet-320x180-0.jpg#xywh=320,0,320,180</code>: a sheet name, then the tile box inside it. Resolve the sheet name against the directory the <code>vtt_url</code> came from, fetch the sheet, and crop the box described by <code>x,y,w,h</code>. The tile is 320&times;180, the only size served.</p>
+</li>
+</ol>
+
+<h2 id="auth">2. Authentication</h2>
+
+<table>
+<tr><th scope="col">Endpoint</th><th scope="col">Gate</th><th scope="col">Note</th></tr>
+<tr><td><code>GET /v1/sprites</code></td><td>keyed</td><td>The lookup. 401 without a valid <code>X-API-Key</code> header.</td></tr>
+<tr><td><code>GET /v1/keys/validate</code></td><td>open</td><td>Key self-check: present the key, get <code>200 {valid, name}</code> or <code>401 {valid: false}</code>. Never counts quota.</td></tr>
+<tr><td><code>GET /s/…</code></td><td>open</td><td>VTT and sheets. Sheets carry long cache headers; they are immutable once written.</td></tr>
+<tr><td><code>GET /v1/status</code>, <code>GET /v1/catalog</code>, <code>GET /v1/titles</code>, <code>GET /v1/requests</code></td><td>open</td><td>Catalogue metadata only. The requests read stays open but is permanently empty.</td></tr>
+<tr><td><code>POST /v1/contribute</code>, <code>POST /v1/register</code>, contribution verify / promote / get, jobs lease / ack / fail</td><td>keyed</td><td>Writes and worker routes. The jobs routes are the operator's own and are not part of the public API.</td></tr>
+</table>
+
+<p>Signing in with a Google account issues a key for the hosted registry, up to four active keys per account. The key is shown once and only its sha256 plus a six-character prefix is stored. See and revoke your keys on the <a href="/dashboard/">dashboard</a>. Self-hosting needs no account: mint keys on your own host; see <a href="/self-host/">self-hosting</a>.</p>
+
+<p>Two 401 shapes, and only these: <code>{"error": "api key required (X-API-Key)"}</code> when the header is missing, <code>{"error": "invalid api key"}</code> when it is unknown or revoked. A revoked account's keys answer the same way.</p>
+
+<h2 id="lookup">3. Lookup</h2>
+
+<ul>
+<li><code>imdb_id</code> or <code>tmdb_id</code> — identifies a film. Supply one id family, not both.</li>
+<li><code>show_imdb_id</code> or <code>show_tmdb_id</code> plus <code>season</code> and <code>episode</code> — identifies an episode.</li>
+<li><code>duration_ms</code> — required. The runtime the player reports, in milliseconds. The registry matches the nearest indexed version within &plusmn;240 s of it.</li>
+<li><code>version</code> — optional. Pins one indexed version instead of matching by duration.</li>
+</ul>
+
+<p>A successful lookup answers:</p>
+
+<pre><code>{
+  "media_type": "movie",
+  "title": "The Shawshank Redemption",
+  "imdb_id": "tt0111161",
+  "vtt_url": "https://openseek.duckdns.org/s/tt0111161-v1/thumbnails.vtt",
+  "version": 1,
+  "source_duration_ms": 8280000,
+  "scale": 1.0,
+  "status": "complete",
+  "covered_until_ms": 8280000
+}</code></pre>
+
+<p><code>version</code> is the indexed version chosen; <code>source_duration_ms</code> is that copy's runtime and <code>scale</code> is the requested duration divided by it, so a player reporting a slightly different runtime still lands on the right cue. <code>status</code> and <code>covered_until_ms</code> say how far previews reach (see next section). <code>vtt_url</code> is absolute and may point at object storage rather than the registry: resolve sheet names against its directory, never rebuild them from the origin.</p>
+
+<h2 id="vtt">4. VTT and coverage</h2>
+
+<p>The cue track is WebVTT: a <code>WEBVTT</code> header, then one cue per frame:</p>
+
+<pre><code>WEBVTT
+
+00:00:00.000 --&gt; 00:00:10.000
+sheet-320x180-0.jpg#xywh=0,0,320,180
+
+00:00:10.000 --&gt; 00:00:20.000
+sheet-320x180-0.jpg#xywh=320,0,320,180</code></pre>
+
+<p>A full bundle is positional — cue <em>i</em> covers second <em>i</em> &times; <code>interval_s</code> — but a bundle captured part-way through a title starts where it started, so never index cues by position. For a scrub position, take <strong>the last cue whose start is less than or equal to the position</strong>, after checking coverage first: when <code>status</code> is <code>pending</code>, previews exist only up to <code>covered_until_ms</code>, and a floor lookup past that point returns a stale tail tile instead of nothing. Past the one-hour mark timestamps start with <code>01:</code>, so parse both two- and three-component times.</p>
+
+<p>Two empty states, and they look different:</p>
+
+<ol>
+<li><strong>Not indexed.</strong> The lookup itself answers <code>404 {"error": "not indexed"}</code>. There is no VTT to fetch; show no preview.</li>
+<li><strong>Past coverage.</strong> The lookup succeeds with <code>status: pending</code> but the position is past <code>covered_until_ms</code>. There are cues, just none for this position; show no preview.</li>
+</ol>
+
+<h2 id="limits">5. Limits</h2>
+
+<ul>
+<li>No rate limiting is implemented.</li>
+<li>Per-key quota defaults to 1,000,000 requests per day, counted per UTC day and <strong>not enforced</strong>. Over-quota keys keep working; one flag turns 429s on.</li>
+<li>Missing or invalid keys answer 401 (see section 2). Nothing else about quota is visible to clients.</li>
+<li>Contributor uploads are capped at 50 MB per body (&rarr; 413).</li>
+<li>Lookup matches the nearest version within &plusmn;240 s of the reported duration; same-title contributions within &plusmn;15 s merge by slot instead of adding a version.</li>
+<li>Accepted cue intervals are 5, 10 or 30 seconds.</li>
+<li>A version needs at least 5 cues.</li>
+<li>Up to 5 versions per title. Under the cap, pending versions are evicted before complete ones, oldest use first.</li>
+<li>One tile size: 320&times;180. There is no size parameter and no other size.</li>
+</ul>
+
+<h2 id="errors">6. Errors</h2>
+
+<table>
+<tr><th scope="col">Status</th><th scope="col">Body</th><th scope="col">When</th></tr>
+<tr><td>400</td><td><code>{"error": "duration_ms required"}</code></td><td>Lookup without a runtime.</td></tr>
+<tr><td>400</td><td><code>{"error": "tmdb_id|imdb_id|show_* required"}</code></td><td>Lookup without any metadata id.</td></tr>
+<tr><td>400</td><td><code>{"error": "bad json"}</code> / <code>{"error": "media_type+title+duration_ms required"}</code></td><td>Register with an unreadable or incomplete body.</td></tr>
+<tr><td>400</td><td><code>{"error": "title-block JSON field required"}</code> and kindred multipart errors</td><td>Contribute without the title block, the VTT, or any sheet.</td></tr>
+<tr><td>401</td><td><code>{"error": "api key required (X-API-Key)"}</code></td><td>Keyed route, header missing.</td></tr>
+<tr><td>401</td><td><code>{"error": "invalid api key"}</code></td><td>Keyed route, key unknown or revoked.</td></tr>
+<tr><td>401</td><td><code>{"valid": false}</code></td><td>Validate with a missing or unknown key.</td></tr>
+<tr><td>404</td><td><code>{"error": "not indexed"}</code></td><td>No title, or no version within &plusmn;240 s.</td></tr>
+<tr><td>404</td><td><code>{"error": "version not found"}</code></td><td>Pinned version does not exist on the title.</td></tr>
+<tr><td>404</td><td><code>{"error": "public intake is closed - POST previews you captured with POST /v1/contribute"}</code></td><td><code>POST /v1/jobs</code> or <code>POST /v1/requests</code>. Deliberate and unauthed, so it never reads as a key problem.</td></tr>
+<tr><td>409</td><td><code>{"error": "version_no taken"}</code></td><td>Register pins a version slot already held.</td></tr>
+<tr><td>413</td><td><code>{"error": "body too large (50MB cap)"}</code></td><td>Contribute body over 50 MB.</td></tr>
+<tr><td>429</td><td><code>{"error": "quota exceeded"}</code></td><td>Not returned today: quota is counted, never enforced. Reserved for the enforcing flag.</td></tr>
+</table>
+
+<p>Sign-in has three of its own: <code>404 {"error": "auth disabled"}</code> while it is unconfigured, 429 after ten starts per address per ten minutes, and 503 when the store is unavailable. The full client lifecycle is on the <a href="/sdk/">SDK page</a>; every endpoint with its gate is on the <a href="/api/">API page</a>.</p>
+
+<p><a href="/">OpenSeek</a> · <a href="/dashboard/">Dashboard</a> · <a href="/sdk/">SDK</a> · <a href="/api/">API</a> · <a href="/self-host/">Self-hosting</a> · <a href="https://github.com/Yatin-Code/openseek-sdk">openseek-sdk</a> · <a href="https://github.com/Yatin-Code/NuvioMobile">NuvioMobile</a> · <a href="https://github.com/Yatin-Code/openseek-site">openseek-site</a>. MIT licensed.</p>
+
+</body>
+</html>

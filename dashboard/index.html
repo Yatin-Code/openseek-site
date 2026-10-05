@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSeek Dashboard</title>
+<meta name="description" content="OpenSeek dashboard skeleton: API keys, usage and contributed titles.">
+</head>
+<body>
+
+<h1>Dashboard</h1>
+
+<p id="session-note">Checking the server session…</p>
+
+<div id="signed-out" hidden>
+<h2>Sign in</h2>
+<p>This page shows your API keys, usage and contributed titles. It is empty until you sign in.</p>
+<p><a href="/v1/auth/start?next=/dashboard/">Sign in with Google</a></p>
+<p>Signing in issues a key for the hosted registry, up to four active keys per account. The key is shown once; only its sha256 plus a six-character prefix is stored. How keys authenticate is on the <a href="/docs/">docs page</a>.</p>
+</div>
+
+<div id="account" hidden>
+<h2>Your keys</h2>
+
+<p>Prefix identifies a key; the full key is shown once at creation and never again.</p>
+
+<table>
+<tr><th scope="col">Prefix</th><th scope="col">Label</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col">Uses</th></tr>
+<tbody id="keys-body">
+<tr><td colspan="5">Sign-in rows load from the same-origin account document. Nothing is stored on this page.</td></tr>
+</tbody>
+</table>
+
+<p>The server-rendered copy of this table always works: <a href="/v1/auth/keys">your keys on the registry</a>.</p>
+
+<h3>Create a key</h3>
+
+<form method="post" action="/v1/auth/keys">
+<p><button type="submit">Create a key</button></p>
+</form>
+
+<h3>Revoke a key</h3>
+
+<form method="post" action="/v1/auth/keys/revoke">
+<p><label>Key id <input type="text" name="id" inputmode="numeric" autocomplete="off"></label></p>
+<p><label><input type="checkbox" name="confirm" value="1"> Confirm revocation</label></p>
+<p><button type="submit">Revoke</button></p>
+</form>
+
+<p>The two forms post to the registry with your session cookie. The key id is the number shown beside the key on the <a href="/v1/auth/keys">registry keys page</a>; a revocation needs the checkbox ticked. If the server rejects a static form for a missing token, create or revoke from that page instead.</p>
+</div>
+
+<h2>Usage</h2>
+
+<p id="usage-line">Usage loads from the registry.</p>
+
+<p>Quota is counted per key per UTC day and not enforced: over-quota keys keep working. This panel reports aggregate counts only. It never shows per-title watch history — the registry keeps per-title-per-day demand counters and no user ids, IPs or histories, and this page stays inside that rule.</p>
+
+<h2>Contributed titles</h2>
+
+<ul id="titles-list">
+<li>Contributed titles load from the registry catalogue.</li>
+</ul>
+
+<p><a href="/docs/">Docs</a> · <a href="/">OpenSeek</a> · <a href="/sdk/">SDK</a> · <a href="/api/">API</a> · <a href="/self-host/">Self-hosting</a> · <a href="https://github.com/Yatin-Code/openseek-sdk">openseek-sdk</a> · <a href="https://github.com/Yatin-Code/NuvioMobile">NuvioMobile</a> · <a href="https://github.com/Yatin-Code/openseek-site">openseek-site</a>. MIT licensed.</p>
+
+<script>
+(function () {
+  "use strict";
+  /* Session handling + sqlite-backed reads for this skeleton. Vanilla only:
+     no framework, no CDN, no npm, no redirects here — when signed out the
+     server itself redirects the account pages to sign-in. */
+
+  /* Firebase Auth integration point. This page loads no Firebase SDK (none
+     is fetched, imported or required). If the deployment injects one it
+     registers window.openseekAuth = { getIdToken: function () {...} } and
+     this resolves its token; otherwise this resolves null and the server
+     cookie session carries auth instead.
+     Contract: the sqlite keys table stays the only key gate (key_ok and
+     /v1/keys/validate read local sqlite, never a remote store). Any
+     Firebase/Firestore mirror is a UI read-model only — key prefix, label,
+     usage, contributed titles — and must never gate a route, mint a key,
+     or record per-user demand or watched history. */
+  function firebaseIdToken() {
+    try {
+      if (window.openseekAuth && typeof window.openseekAuth.getIdToken === "function") {
+        return window.openseekAuth.getIdToken();
+      }
+    } catch (e) { /* fall through to the cookie session */ }
+    return Promise.resolve(null);
+  }
+
+  function show(id, on) {
+    var el = document.getElementById(id);
+    if (el) el.hidden = !on;
+  }
+
+  function text(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  /* Signed in means the server session answers the account page: 200 when
+     signed in, a redirect to sign-in when signed out, 404 while sign-in is
+     unconfigured on the registry. */
+  function probeSession() {
+    return fetch("/v1/auth/keys", { redirect: "manual", credentials: "same-origin" }).then(function (r) {
+      var signedIn = r.status === 200 && r.type !== "opaqueredirect";
+      show("signed-out", !signedIn);
+      show("account", signedIn);
+      if (r.status === 200 && r.type !== "opaqueredirect") {
+        text("session-note", "Signed in (server session).");
+      } else if (r.status === 404) {
+        text("session-note", "Sign-in is not configured on this registry.");
+      } else {
+        text("session-note", "Not signed in.");
+      }
+    }).catch(function () {
+      show("signed-out", true);
+      show("account", false);
+      text("session-note", "The registry did not answer; showing the signed-out view.");
+    });
+  }
+
+  /* Aggregate usage from sqlite-backed JSON: indexed titles and versions.
+     Per-key used counts ride with the account document, never here. */
+  function loadUsage() {
+    return fetch("/v1/status", { credentials: "same-origin" }).then(function (r) {
+      if (!r.ok) throw new Error("status " + r.status);
+      return r.json();
+    }).then(function (s) {
+      text("usage-line", "Indexed titles: " + s.titles + "; versions: " + s.versions + ".");
+    }).catch(function () {
+      text("usage-line", "Usage is unavailable: the registry did not answer.");
+    });
+  }
+
+  /* Contributed titles from the sqlite-backed catalogue (title, version
+     count, coverage). Aggregate list only — no watch history exists. */
+  function loadTitles() {
+    return fetch("/v1/catalog?limit=25", { credentials: "same-origin" }).then(function (r) {
+      if (!r.ok) throw new Error("catalog " + r.status);
+      return r.json();
+    }).then(function (c) {
+      var ul = document.getElementById("titles-list");
+      if (!ul) return;
+      while (ul.firstChild) ul.removeChild(ul.firstChild);
+      (c.entries || []).forEach(function (e) {
+        var vs = e.versions || [];
+        var pending = vs.filter(function (v) { return v.status === "pending"; }).length;
+        var cover = pending > 0 ? pending + " pending" : "complete";
+        var li = document.createElement("li");
+        li.textContent = (e.title || "Untitled") + " — " + vs.length + " version(s), " + cover + ".";
+        ul.appendChild(li);
+      });
+      if (!ul.firstChild) {
+        var li = document.createElement("li");
+        li.textContent = "The catalogue is empty.";
+        ul.appendChild(li);
+      }
+    }).catch(function () {
+      var ul = document.getElementById("titles-list");
+      if (!ul) return;
+      while (ul.firstChild) ul.removeChild(ul.firstChild);
+      var li = document.createElement("li");
+      li.textContent = "Contributed titles are unavailable: the registry did not answer.";
+      ul.appendChild(li);
+    });
+  }
+
+  firebaseIdToken().then(function () {
+    probeSession();
+    loadUsage();
+    loadTitles();
+  });
+}());
+</script>
+
+</body>
+</html>
