@@ -39,7 +39,8 @@
 python3 registry/registry.py --port 8080</code></pre>
 <p><code>init_db.py</code> is idempotent: it applies the schema and then any migrations, so re-running it against an existing database is safe. Keys live in a <code>keys</code> table, and one is minted on the host with:</p>
 <pre><code>python3 mint_key.py &lt;name&gt;</code></pre>
-<p>The key is printed once and only a hash of it is stored, with a six-character prefix, so it cannot be displayed again. Mint a replacement and revoke the old one by prefix. <code>X-API-Key</code> is required on <code>/v1/sprites</code>, <code>/v1/contribute</code> and the intake routes.</p>
+<p>The key is printed once and only a hash of it is stored, with a six-character prefix, so it cannot be displayed again. Mint a replacement and revoke the old one by prefix. <code>X-API-Key</code> is required on <code>/v1/sprites</code>, <code>POST /v1/contribute</code> and <code>POST /v1/register</code>.</p>
+<p>There is no route for asking the registry to index something. <code>POST /v1/contribute</code> is the only public write, and it takes previews you generated yourself from a file you have the right to process — the registry never downloads anything. If you want to queue your own generation work, insert rows into the <code>jobs</code> table on the registry host and let a worker lease them from there.</p>
 </li>
 
 <li>

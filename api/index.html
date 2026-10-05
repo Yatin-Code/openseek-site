@@ -33,7 +33,7 @@ X-API-Key: &lt;your key&gt;</code></pre>
 <li><code>GET /v1/titles?imdb_id=…</code> — all versions of one title.</li>
 <li><code>GET /v1/keys/validate</code> — key self-check. Not quota-gated: it never counts usage. Returns <code>200 {valid, name}</code> for a known key and <code>401 {valid: false}</code> for an unknown or missing one.</li>
 <li><code>GET /s/…</code> — static VTT and sheet files. Long cache headers on sheets, which are immutable once written.</li>
-<li><code>GET /v1/requests</code> — the open backlog of titles someone asked to have indexed.</li>
+<li><code>GET /v1/requests</code> — the backlog read. It stays open, but nothing can write to it any more, so it answers empty unless an operator filled it in themselves.</li>
 </ul>
 
 <h2>Keyed endpoints</h2>
@@ -45,9 +45,17 @@ X-API-Key: &lt;your key&gt;</code></pre>
 <li><code>POST /v1/contributions/&lt;id&gt;/verify</code> — internal-consistency check on a quarantined upload.</li>
 <li><code>POST /v1/contributions/&lt;id&gt;/promote</code> — move a verified contribution into the catalogue.</li>
 <li><code>GET /v1/contributions/&lt;id&gt;</code> — the state of one contribution.</li>
-<li><code>POST /v1/requests</code> — log that a title is wanted. Deduplicated on id.</li>
-<li><code>POST /v1/jobs</code>, <code>POST /v1/jobs/lease</code>, <code>POST /v1/jobs/&lt;id&gt;/ack</code>, <code>POST /v1/jobs/&lt;id&gt;/fail</code> — the generation queue, for whoever runs the workers.</li>
 </ul>
+
+<h2>No public job intake</h2>
+
+<p>Public intake is closed. <code>POST /v1/contribute</code> is the only public write.</p>
+
+<p><code>POST /v1/jobs</code> and <code>POST /v1/requests</code> therefore answer <code>404</code>, with a body naming the replacement:</p>
+
+<pre><code>{"error": "public intake is closed - POST previews you captured with POST /v1/contribute"}</code></pre>
+
+<p>That is a deliberate <code>404</code>, not a missing route and not a key problem: it comes back the same way with no key, so it never reads as "get a key and try again". <code>POST /v1/jobs/lease</code>, <code>POST /v1/jobs/&lt;id&gt;/ack</code> and <code>POST /v1/jobs/&lt;id&gt;/fail</code> still exist and still need a key, but they are the operator's own worker routes: something inside the deployment leases work it queued itself. They are not part of the public API and are not documented for clients.</p>
 
 <p>A key does not bypass verification. Promotion refuses a contribution that has not been verified, and verification is a check on the upload itself: the WebVTT must parse, every cue must reference a sheet that was uploaded, sampled tiles must decode as non-blank JPEGs, the tile boxes must lie inside the sheet image, and the cue count and interval must be plausible.</p>
 
