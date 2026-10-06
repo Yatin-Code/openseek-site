@@ -59,8 +59,8 @@
 <tr><td><code>GET /v1/sprites</code></td><td>keyed</td><td>The lookup. 401 without a valid <code>X-API-Key</code> header.</td></tr>
 <tr><td><code>GET /v1/keys/validate</code></td><td>open</td><td>Key self-check: present the key, get <code>200 {valid, name}</code> or <code>401 {valid: false}</code>. Never counts quota.</td></tr>
 <tr><td><code>GET /s/…</code></td><td>open</td><td>VTT and sheets. Sheets carry long cache headers; they are immutable once written.</td></tr>
-<tr><td><code>GET /v1/status</code>, <code>GET /v1/catalog</code>, <code>GET /v1/titles</code>, <code>GET /v1/requests</code></td><td>open</td><td>Catalogue metadata only. The requests read stays open but is permanently empty.</td></tr>
-<tr><td><code>POST /v1/contribute</code>, <code>POST /v1/register</code>, contribution verify / promote / get, jobs lease / ack / fail</td><td>keyed</td><td>Writes and worker routes. The jobs routes are the operator's own and are not part of the public API.</td></tr>
+<tr><td><code>GET /v1/status</code>, <code>GET /v1/catalog</code>, <code>GET /v1/titles</code></td><td>open</td><td>Catalogue metadata only.</td></tr>
+<tr><td><code>POST /v1/contribute</code>, <code>POST /v1/register</code>, contribution verify / promote / get</td><td>keyed</td><td>Writes. <code>POST /v1/contribute</code> is the only public write.</td></tr>
 </table>
 
 <p>Signing in with a Google account issues a key for the hosted registry, up to four active keys per account. The key is shown once and only its sha256 plus a six-character prefix is stored. See and revoke your keys on the <a href="/dashboard/">dashboard</a>. Self-hosting needs no account: mint keys on your own host; see <a href="/self-host/">self-hosting</a>.</p>
@@ -140,7 +140,7 @@ sheet-320x180-0.jpg#xywh=320,0,320,180</code></pre>
 <tr><td>401</td><td><code>{"valid": false}</code></td><td>Validate with a missing or unknown key.</td></tr>
 <tr><td>404</td><td><code>{"error": "not indexed"}</code></td><td>No title, or no version within &plusmn;240 s.</td></tr>
 <tr><td>404</td><td><code>{"error": "version not found"}</code></td><td>Pinned version does not exist on the title.</td></tr>
-<tr><td>404</td><td><code>{"error": "public intake is closed - POST previews you captured with POST /v1/contribute"}</code></td><td><code>POST /v1/jobs</code> or <code>POST /v1/requests</code>. Deliberate and unauthed, so it never reads as a key problem.</td></tr>
+
 <tr><td>409</td><td><code>{"error": "version_no taken"}</code></td><td>Register pins a version slot already held.</td></tr>
 <tr><td>413</td><td><code>{"error": "body too large (50MB cap)"}</code></td><td>Contribute body over 50 MB.</td></tr>
 <tr><td>429</td><td><code>{"error": "quota exceeded"}</code></td><td>Not returned today: quota is counted, never enforced. Reserved for the enforcing flag.</td></tr>
